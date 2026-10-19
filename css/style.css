@@ -242,3 +242,16 @@ details[open] > summary.cp.detail::before { content: "▾ "; }
   .side { display: contents; }
   .charcard { order: 1; } .layout > .stats { order: 2; } details.habits { order: 3; }
 }
+
+/* 「目前的你」橫跨整排，桌機版把習慣排成多欄，避免左右高度不一留下大空白 */
+.layout > details.habits { grid-column: 1 / -1; }
+@media (min-width: 768px) {
+  .layout > details.habits .hp-main { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); column-gap: 24px; align-items: start; }
+  .layout > details.habits .hp-main > :not(.hp-row) { grid-column: 1 / -1; }
+}
+@media (min-width: 768px) {
+  /* 右邊數值區撐滿與左邊角色卡同高，不留空白 */
+  .layout { align-items: stretch; }
+  .layout > .stats { grid-auto-rows: 1fr; align-content: stretch; }
+  .layout > details.habits { align-self: start; }
+}

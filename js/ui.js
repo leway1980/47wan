@@ -458,9 +458,9 @@ export function showReport(refs, rp, { onGuess, onNext, guessed, st, avatar }) {
 // 高中三年紀錄：寬螢幕是表格（六學期六欄），手機是一學期一張卡片
 const SEM_ROWS = [
   ['段考平均', (m) => (m.exam == null ? '—' : String(m.exam))],
-  ['出缺勤', (m) => `遲到 ${m.遲到}・缺掃 ${m.缺掃}・缺交 ${m.缺交}${m.補交 ? `・補交 ${m.補交}` : ''}`],
+  ['出缺勤', (m) => (m.遲到 || m.缺掃 || m.缺交 ? `遲到 ${m.遲到}・缺掃 ${m.缺掃}・缺交 ${m.缺交}` : '全勤') + (m.補交 ? `・補交 ${m.補交}` : '')],
   ['社團', (m) => m.club],
-  ['獎懲', (m) => `嘉獎 ${m.嘉獎}・警告 ${m.警告}`],
+  ['獎懲', (m) => [m.嘉獎 && `嘉獎 ${m.嘉獎}`, m.警告 && `警告 ${m.警告}`].filter(Boolean).join('・') || '—'],
   ['活動與競賽', (m) => (m.activities && m.activities.length ? m.activities.join('、') : '—')],
   ['這學期最重要的事', (m) => m.highlight],
 ];

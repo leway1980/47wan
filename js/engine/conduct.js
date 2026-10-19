@@ -79,6 +79,7 @@ function highlightOf(st, win, d) {
 export function recordSemester(st, tl) {
   ensureConduct(st);
   const b = st.semBase, win = (x) => x.turn > b.turn && x.turn <= tl.turn;
+  if (st.flags.幹部) st.att.嘉獎 += 2; // 班級幹部每學期多半記嘉獎兩支
   const d = {};
   for (const k of ATT_KEYS) d[k] = st.att[k] - (b.att[k] || 0);
   const exams = st.examScores.slice(b.exam);

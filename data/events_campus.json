@@ -863,6 +863,9 @@
               "chance": 0.9,
               "gate": "teacher"
             }
+          ],
+          "setFlags": [
+            "幹部"
           ]
         },
         {
@@ -894,6 +897,9 @@
               "chance": 0.9,
               "gate": "teacher"
             }
+          ],
+          "setFlags": [
+            "幹部"
           ]
         },
         {

@@ -84,7 +84,7 @@ export function avatarSpec(identity, idn, seed = 0) {
     hairColor: av.hairColors[identity.hairColor],
     skin: av.skins[identity.skin],
     glasses: !!identity.glasses,
-    uniform: idn.uniforms[identity.schoolKey],
+    uniform: idn.uniformPalettes[identity.schoolKey] || idn.uniformPalettes[0], // 舊存檔的 schoolKey 是舊校名
     casual: {
       top: av.casualTops[Math.floor(r() * av.casualTops.length)],
       bottom: av.casualBottoms[Math.floor(r() * av.casualBottoms.length)],

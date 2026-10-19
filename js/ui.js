@@ -5,6 +5,7 @@ import { formatDateLong } from './engine/report.js';
 import { avatarSVG } from './engine/avatar.js';
 import { shockView, parentLabel, tutorCap, tutorIsFree, effectiveEcon } from './engine/family.js';
 import { TOTAL_TURNS } from './engine/turn.js';
+import { structureLine } from './engine/identity.js';
 
 // 粗估比例：「每 10 人有 4 人」比「1,000 人中 382 人」好讀
 const rough = (n) => {
@@ -28,7 +29,7 @@ function famLine(st) {
   const id = st.identity, now = effectiveEcon(st), sk = st.fam && st.fam.shock;
   const econ = now === id.family.econ ? now : `${now}（原本${id.family.econ}）`;
   const job = sk && sk.id === 'unemployed' ? `原本${id.family.job}` : id.family.job;
-  return `🏠 ${econ}・${parentLabel(st)}：${job}`;
+  return `🏠 ${econ}・${id.family.structure === '隔代' ? '爸媽' : parentLabel(st)}：${job}`; // 隔代：職業是外地的爸媽的
 }
 
 const avHTML = (spec, opts) => avatarSVG(spec, opts);
@@ -275,8 +276,9 @@ export function renderHabits(refs, st) {
       h('span', { class: 'pf-school' }, `📍 ${id.county}${id.district}・${id.school}`),
       h('span', { class: 'pf-fam' }, `🚌 通勤：${id.commute}`),
       h('span', { class: 'pf-fam' }, famLine(st)),
+      !!structureLine(id.family) && h('span', { class: 'pf-fam' }, `🏠 ${structureLine(id.family)}`),
       h('span', { class: 'pf-fam' }, id.allowanceMonth ? `💵 零用錢：每月 ${id.allowanceMonth.toLocaleString('en-US')} 元` : '💵 沒有固定零用錢'),
-      h('span', { class: 'pf-fam' }, `📘 學群：${st.flags.自然學群 ? '自然學群' : st.flags.文法商學群 ? '文法商學群' : '還沒選（高一下選）'}`),
+      h('span', { class: 'pf-fam' }, id.vocGroup ? `📘 群科：${id.vocGroup}群` : `📘 學群：${st.flags.自然學群 ? '自然學群' : st.flags.文法商學群 ? '文法商學群' : '還沒選（高一下選）'}`),
       ...subjectLines(st),
       (st.stats.投資本金 || 0) > 0 && h('span', { class: 'pf-fam', 'data-invest': '1' }, `📈 投資 ${Math.round(st.stats.投資).toLocaleString('en-US')} 元（${st.stats.投資 >= st.stats.投資本金 ? '+' : ''}${Math.round((st.stats.投資 / st.stats.投資本金 - 1) * 100)}%）`),
       st.rule && st.turn < st.rule.until && st.rule.label && h('span', { class: 'pf-fam', 'data-rule': '1' }, `📵 家規：${st.rule.label}`),

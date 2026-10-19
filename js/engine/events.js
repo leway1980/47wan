@@ -131,6 +131,7 @@ export function buildCtx(st, tl) {
     都會: id.tier === '六都' && /區$/.test(id.district || ''),
     月: tl ? new Date(tl.start).getUTCMonth() + 1 : 9,
     弱科: aptExtreme(id.aptitude, -1), 強科: aptExtreme(id.aptitude, 1),
+    明星: id.schoolTier === 'star' || id.schoolTier === 'pstar', 學程: id.program || '', 家庭: id.family.structure, 繼親: id.family.step || '', 同住: id.family.parent,
   };
 }
 // 各科天分裡最弱（dir=-1）或最強（dir=1）的一科；沒有天分資料就回空字串
@@ -275,7 +276,7 @@ export function describeCard(card, st, ctx) {
       if (ch.refundScam) chips.push({ k: '錢包', dir: 1 });
       if (owe || ch.scam || (ch.hidden && Object.keys(ch.hidden).length) || (ch.delayed && ch.delayed.length)) chips.push({ k: '？後續', dir: 0 });
       const note = owe ? `錢包不夠，要先請同學墊 NT$${owe}（欠人情）` : ch.note || '';
-      return { i, label: ch.label, note, chips, disabled, reason, owe };
+      return { i, label: fill(ch.label, st), note: fill(note, st), chips, disabled, reason: fill(reason, st), owe }; // 選項文字只換固定代稱（不用變數槽）
     }),
   };
 }

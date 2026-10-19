@@ -14,7 +14,7 @@ export function genPeers(seed, data, playerName) {
   for (let i = 0; i < N_PEERS; i++) {
     const county = pickWeighted(r, idn.counties, (c) => c.w);
     const fam = rollFamily(r, idn, county);
-    const school = rollSchool(r, idn, county);
+    const school = rollSchool(r, idn, county).type;
     const commute = rollCommute(r, idn, county, fam.econ);
     const cramP = 0.33 + (county.tier === '六都' ? 0.07 : 0) + school.cramBoost + (fam.support === '花錢買資源' ? 0.08 : 0) - (fam.econ === '吃緊' ? 0.1 : 0);
     const o = i * F;
@@ -77,14 +77,14 @@ function peerPhrase(st, idn, idx, kind) {
   const q = mulberry32((st.seed ^ (idx * 2654435761)) >>> 0);
   const county = pickWeighted(q, idn.counties, (c) => c.w);
   if (kind === '死亡') return `聽說${county.name}有一位同屆的學生在車禍中離開了。`;
-  const type = rollSchool(q, idn, county).name;
+  const sch = rollSchool(q, idn, county).sch;
   const male = q() < 0.5;
   const name = pickWeighted(q, idn.surnames.map((n, k) => ({ n, w: idn.surnameW[k] })), (x) => x.w).n + pick(q, male ? idn.givenNamesM : idn.givenNamesF);
   const ph = {
     打工: `這學期開始在${pick(q, JOBS)}打工`, 交往: '交往了', 分手: '和對象分手了，最近話變少', 離開: '離開了原本的學校，去走另一條路',
     輕傷: '騎車上學出了車禍，擦傷了好幾處', 住院: '出車禍住院，班上同學去探望', 休學: '出了很嚴重的車禍，暫時休學在家',
   }[kind];
-  return `📍 ${county.name}・${type}｜${name} ${ph}`;
+  return `📍 ${county.name}・${sch.n}｜${name} ${ph}`;
 }
 export function stepPeers(st, data, tl) {
   const r = stateRng(st, 'peerS');

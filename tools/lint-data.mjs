@@ -16,7 +16,7 @@ export function loadRaw() {
   for (const f of readdirSync(join(ROOT, 'data'))) {
     if (/^events_.+\.json$/.test(f)) events.cards.push(...rd(f).cards);
   }
-  return { identities: rd('identities.json'), events, calendar: rd('calendar.json'), life_events: rd('life_events.json'), slots: rd('slots.json') };
+  return { identities: rd('identities.json'), schools: rd('schools.json'), events, calendar: rd('calendar.json'), life_events: rd('life_events.json'), slots: rd('slots.json') };
 }
 
 const engineSrc = () => readdirSync(join(ROOT, 'js', 'engine')).map((f) => readFileSync(join(ROOT, 'js', 'engine', f), 'utf8')).join('\n');

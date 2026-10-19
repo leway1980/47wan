@@ -12,17 +12,18 @@ import { buildCtx, passes, describeCard, applyChoice } from '../js/engine/events
 import { applyHabits, COUPLE_LINES } from '../js/engine/turn.js';
 import { buildEnding } from '../js/engine/report.js';
 import { N_PEERS, stepPeers } from '../js/engine/peers.js';
-import { tutorCap, tutorMaxLevel, famStep, shockOf, effectiveEcon } from '../js/engine/family.js';
+import { tutorCap, tutorMaxLevel, famStep, shockOf, effectiveEcon, BIZ, SALARY } from '../js/engine/family.js';
 import { avatarSVG, avatarSpec, avatarOptsFromState, isCompletePalette } from '../js/engine/avatar.js';
 import { generateIdentity } from '../js/engine/identity.js';
 import { selfChoice, playRestAuto } from '../js/engine/auto.js';
+import { OUTCOMES } from '../js/engine/feedcodes.js';
 import { fillSlots, slotRng } from '../js/engine/slots.js';
 import { FLAVOR_WIN } from '../js/engine/turn.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const rd = (f) => JSON.parse(readFileSync(join(root, 'data', f), 'utf8'));
 const withCampus = () => { const e = rd('events.json'); for (const f of readdirSync(join(root, 'data')).sort()) if (/^events_.+\.json$/.test(f)) e.cards.push(...rd(f).cards); return e; };
-const raw = () => ({ identities: rd('identities.json'), events: withCampus(), calendar: rd('calendar.json'), life_events: rd('life_events.json'), slots: rd('slots.json') });
+const raw = () => ({ identities: rd('identities.json'), schools: rd('schools.json'), events: withCampus(), calendar: rd('calendar.json'), life_events: rd('life_events.json'), slots: rd('slots.json') });
 const data = prepareData(raw());
 
 // 固定的「玩家」：習慣與選擇都由自己的亂數決定
@@ -249,18 +250,17 @@ test('像素小人：身分外貌由種子決定，名字依性別', () => {
     else { girls++; if (a.bottom === '裙') girlsSkirt++; }
     if (a.glasses) glasses++;
     assert.ok(a.hair >= 0 && a.hair < 3 && idn.avatar.skins[a.skin] && idn.avatar.hairColors[a.hairColor]);
-    assert.ok(idn.uniforms[a.schoolKey]);
+    assert.ok(idn.uniformPalettes[a.schoolKey]);
   }
   assert.ok(girlsSkirt / girls > 0.65 && girlsSkirt / girls < 0.85);
   assert.ok(glasses / 400 > 0.25 && glasses / 400 < 0.45);
 });
 
-test('像素小人：每所學校都有完整制服與運動服調色盤，且彼此不同', () => {
-  const idn = data.identities;
-  const names = idn.schools.flatMap((s) => s.names);
-  for (const n of names) assert.ok(isCompletePalette(idn.uniforms[n]), n);
-  const sigs = new Set(names.map((n) => JSON.stringify(idn.uniforms[n])));
-  assert.equal(sigs.size, names.length);
+test('像素小人：每套制服調色盤都完整（含運動服），且彼此不同', () => {
+  const pal = data.identities.uniformPalettes;
+  assert.ok(pal.length >= 16);
+  pal.forEach((u, i) => assert.ok(isCompletePalette(u), String(i)));
+  assert.equal(new Set(pal.map((u) => JSON.stringify(u))).size, pal.length);
 });
 
 test('像素小人：avatarSVG 為純函式，輸出隨學校與狀態改變', () => {
@@ -271,7 +271,7 @@ test('像素小人：avatarSVG 為純函式，輸出隨學校與狀態改變', (
   assert.ok(svg.startsWith('<svg'));
   assert.ok(svg.includes('shape-rendering="crispEdges"') && svg.includes('viewBox="0 0 16 24"'));
   assert.equal(svg, avatarSVG(spec, { outfit: 'uniform' }));
-  const other = { ...spec, uniform: idn.uniforms[Object.keys(idn.uniforms).find((k) => k !== id.schoolKey)] };
+  const other = { ...spec, uniform: idn.uniformPalettes[(id.schoolKey + 1) % idn.uniformPalettes.length] };
   assert.notEqual(svg, avatarSVG(other, { outfit: 'uniform' }));
   for (const o of [{ outfit: 'pe' }, { outfit: 'casual' }, { frame: 1 }, { tired: true }, { phone: true, glow: true }, { mood: 'happy' }, { mood: 'sad' }, { bandage: true }, { gaming: true, sweat: true, backpack: true, hw: 'chat' }, { hw: 'paper', slouch: true }]) {
     const v = avatarSVG(spec, o);
@@ -569,16 +569,18 @@ test('delayed 的 if 條件：自律才排好結果、不自律才排壞結果�
 });
 
 test('校園卡：學測前閉關一個月在高三上最後幾回合出現', () => {
-  let seen = 0;
+  let seen = 0, runs = 0;
   for (let seed = 1; seed <= 20; seed++) {
     const st = newState(seed, data);
+    if (st.identity.kind === '技高') continue; // 技高考統測，沒有學測前閉關
+    runs++;
     for (let t = 0; t < 58 && !st.ended; t++) {
       const res = startTurn(st, data);
       if (res.card) { if (res.card.id === 'campus_y3_retreat') { seen++; assert.equal(st.turn, 55); } chooseCard(st, data, res.card.choices.find((c) => !c.disabled).i); }
       finishTurn(st, data); st.reportPending = null;
     }
   }
-  assert.equal(seen, 20, `閉關出現 ${seen}/20`);
+  assert.equal(seen, runs, `閉關出現 ${seen}/${runs}`);
 });
 
 /* ───────────── 前因後果（consequence threads）與結構性降低手機 ───────────── */
@@ -865,6 +867,95 @@ test('同屆的其他人：peerFeed 最多 12 則，且死亡消息不含姓名'
   assert.ok(any > 0, '應該至少留下一些消息');
 });
 
+test('真實學校名冊：每所學校縣市有效、遮罩只遮校名本體一個字、不遮類型字、縣市共 22', () => {
+  const idn = data.identities, list = idn.schoolList;
+  const counties = new Map(idn.counties.map((c) => [c.name, c]));
+  assert.equal(counties.size, 22);
+  assert.ok(list.length >= 450);
+  const TAIL = /(海事水產|實驗學校|實驗高中|商水|高中|中學|高工|高商|高農|高職|家商|家職|農工|工商|商工|工家|工農|商海|餐旅|餐飲|藝校|實中|附中|護家|女中|海事)$/;
+  for (const s of list) {
+    const c = counties.get(s.county);
+    assert.ok(c, s.county);
+    assert.ok(c.districts.includes(s.district), s.n);
+    assert.equal([...s.n].filter((ch) => ch === '○').length, 1, s.n);
+    assert.ok(['普高', '技高', '綜高', '單科'].includes(s.kind) && ['star', 'pstar', 'community', 'general'].includes(s.tier) && s.w > 0);
+    const m = s.n.match(TAIL);
+    if (m) assert.ok(!m[0].includes('○'), s.n);
+    if (s.n.includes('建○中學') || s.n === '北○女中') assert.ok(true);
+  }
+  assert.ok(list.some((s) => s.n === '建○中學') && list.some((s) => s.n === '臺○一中') && list.some((s) => s.n === '嘉○家職'));
+  for (const c of idn.counties) {
+    assert.ok(c.name.includes('臺') || !c.name.includes('台'));
+    assert.equal(c.tier, ['臺北市', '新北市', '桃園市', '臺中市', '臺南市', '高雄市'].includes(c.name) ? '六都' : '其他');
+    assert.ok(list.some((s) => s.county === c.name));
+  }
+});
+
+test('身分：學校在自己的縣市、制服調色盤有效、群科只屬於技高／綜高', () => {
+  const idn = data.identities;
+  const byCode = new Map(idn.schoolList.map((s) => [s.id, s]));
+  const groups = new Set(idn.vocGroups.map((g) => g.n));
+  const types = new Set();
+  for (let seed = 1; seed <= 200; seed++) {
+    const id = generateIdentity(seed, idn);
+    const s = byCode.get(id.schoolCode);
+    assert.ok(s && s.county === id.county && s.district === id.schoolDistrict && s.kind === id.schoolKind);
+    if (s.kind === '綜高') assert.ok(['普通科', '綜合學程', '職業類科'].includes(id.program)); else assert.equal(id.kind, s.kind === '技高' ? '技高' : s.kind);
+    assert.ok(id.school.startsWith(s.n) && (s.pub || id.school.endsWith('（私立）')));
+    assert.ok(idn.uniformPalettes[id.schoolKey] && isCompletePalette(idn.uniformPalettes[id.schoolKey]));
+    assert.ok(idn.schools.some((t) => t.id === id.schoolId));
+    const voc = id.kind === '技高';
+    assert.equal(voc, id.schoolKind === '技高' || id.program === '職業類科');
+    if (voc) assert.ok(groups.has(id.vocGroup)); else assert.equal(id.vocGroup, null);
+    assert.ok(idn.counties.find((c) => c.name === id.county).districts.includes(id.district));
+    types.add(id.schoolId);
+  }
+  assert.ok(types.has('public_voc') && types.has('community') && types.has('comprehensive'));
+  // 同一所學校 → 同一套制服
+  const a = generateIdentity(1, idn);
+  assert.equal(idn.uniformPalettes.length > 0 && a.schoolKey, a.schoolKey);
+});
+
+test('家庭型態：5,000 個種子的分布接近設計值，且各型態的稱呼與規則正確', () => {
+  const idn = data.identities, n = 5000, cnt = {};
+  for (let seed = 1; seed <= n; seed++) {
+    const f = generateIdentity(seed, idn).family;
+    cnt[f.structure] = (cnt[f.structure] || 0) + 1;
+    if (f.structure === '隔代') assert.ok(f.parent === '阿嬤' || f.parent === '阿公');
+    else assert.ok(f.parent === '爸爸' || f.parent === '媽媽');
+    if (f.structure === '重組') assert.equal(f.step, f.parent === '爸爸' ? '繼母' : '繼父'); else assert.equal(f.step, null);
+  }
+  for (const [k, p] of Object.entries({ 雙親: 0.78, 離異: 0.13, 隔代: 0.03, 重組: 0.04, 喪親: 0.02 })) assert.ok(Math.abs((cnt[k] || 0) / n - p) <= 0.03, `${k} ${(cnt[k] || 0) / n}`);
+});
+
+test('職業：每個職業都歸類為自營（BIZ）或領薪水（SALARY），權重與名稱一一對應', () => {
+  const idn = data.identities;
+  assert.equal(idn.jobs.length, idn.jobWeights.length);
+  assert.ok(idn.jobs.length >= 28);
+  for (const j of idn.jobs) {
+    assert.ok(BIZ.includes(j.name) !== SALARY.includes(j.name), j.name);
+    assert.equal(j.econ.length, 3); assert.equal(j.support.length, 3);
+    assert.ok(j.sleep >= 0 && j.sleep <= 0.3);
+  }
+  for (const nm of [...BIZ, ...SALARY]) assert.ok(idn.jobs.some((j) => j.name === nm), nm);
+});
+
+test('技高不選學群；家庭型態卡與技高卡都有符合的人才會出現', () => {
+  const idn = data.identities;
+  const find = (f) => { for (let s = 1; s < 3000; s++) { const st = newState(s, data); if (f(st.identity)) return st; } };
+  const voc = find((i) => i.kind === '技高'), gen = find((i) => i.kind === '普高');
+  const tc = data.cardIndex.track_choice;
+  assert.equal(passes(tc, voc, buildCtx(voc, data.timeline[10])), false);
+  assert.equal(passes(tc, gen, buildCtx(gen, data.timeline[10])), true);
+  const fs = data.events.cards.filter((c) => c.id.startsWith('fs_') && c.requires?.expr?.includes('家庭 =='));
+  assert.ok(fs.length >= 8);
+  const st = find((i) => i.family.structure === '雙親');
+  for (const c of fs) assert.equal(passes(c, st, buildCtx(st, data.timeline[10])), false, c.id);
+  const vc = data.events.cards.filter((c) => c.id.startsWith('voc_') && c.requires?.expr?.startsWith('技高'));
+  assert.ok(vc.length >= 6);
+  for (const c of vc) assert.equal(passes(c, gen, buildCtx(gen, data.timeline[10])), false, c.id);
+});
+
 /* ───────────── 變數槽 ───────────── */
 const slotCtx = (st, turn = 30) => buildCtx(st, data.timeline[turn]); // 回合 30 = 高二上
 
@@ -914,8 +1005,8 @@ test('fillSlots：避開上一次用過的值', () => {
 
 test('科目：社會組高二不會是物理；技高餐旅不會是普高科目', () => {
   const NAT = ['物理', '化學', '生物', '地科'], SOC = ['歷史', '地理', '公民'];
-  const soc = newState(3, data); soc.flags.文法商學群 = true;
-  const nat = newState(4, data); nat.flags.自然學群 = true;
+  const soc = newState(3, data); soc.identity.vocGroup = null; soc.flags.文法商學群 = true;
+  const nat = newState(4, data); nat.identity.vocGroup = null; nat.flags.自然學群 = true;
   const voc = newState(6, data); voc.identity.vocGroup = '餐旅';
   const seen = { soc: new Set(), nat: new Set(), voc: new Set() };
   for (let i = 0; i < 400; i++) {
@@ -995,4 +1086,49 @@ test('lint：未知的槽、沒有後備值的槽、指到不存在值的 set �
   bad.slots.slots.壞條件 = [{ t: 'b' }, { t: 'c', if: '不存在的變數 > 1' }];
   const e = lintData(bad).errors.join('\n');
   assert.match(e, /沒有這個槽/); assert.match(e, /壞槽：沒有無條件的後備值/); assert.match(e, /不在槽「時段」/); assert.match(e, /不存在的變數/);
+});
+
+test('綜高校的學程：5,000 個種子的普／技／綜合學程比例接近目標，且技高才有群科', () => {
+  const idn = data.identities, n = 5000, c = { 普通: 0, 技: 0, 綜合學程: 0 };
+  for (let seed = 1; seed <= n; seed++) {
+    const id = generateIdentity(seed, idn);
+    if (id.kind === '技高') { c.技++; assert.ok(id.vocGroup); } else { assert.equal(id.vocGroup, null); if (id.program === '綜合學程') c.綜合學程++; else c.普通++; }
+  }
+  assert.ok(Math.abs(c.普通 / n - 0.48) < 0.04 && Math.abs(c.技 / n - 0.43) < 0.06 && Math.abs(c.綜合學程 / n - 0.08) < 0.03, JSON.stringify(c));
+});
+
+test('統測：技高不考學測、考統測，去向是科大／二專五專／就業；普高不受影響；去向都在 OUTCOMES 內', () => {
+  const find = (f) => { for (let s = 1; s < 3000; s++) { const st = newState(s, data); if (f(st.identity)) return s; } };
+  const voc = find((i) => i.kind === '技高'), gen = find((i) => i.kind === '普高');
+  const types = new Set();
+  for (const [seed, isVoc] of [[voc, true], [gen, false]]) {
+    const st = newState(seed, data);
+    playToEnd(st, data, scripted(seed));
+    assert.equal(st.gsat === null, isVoc);
+    assert.equal(st.tcte != null, isVoc);
+    assert.ok(OUTCOMES.includes(st.outcome.type), st.outcome.type);
+    if (isVoc) assert.ok(['國立科大', '私立科大', '二專或五專續讀', '直接就業', '重考一年'].includes(st.outcome.type));
+    else assert.ok(['國立大學', '私立大學', '科技大學', '重考一年'].includes(st.outcome.type));
+  }
+  for (let seed = 1; seed <= 120; seed++) {
+    const st = newState(seed, data);
+    if (st.identity.kind !== '技高') continue;
+    playToEnd(st, data, scripted(seed));
+    types.add(st.outcome.type);
+    const e = buildEnding(st, data);
+    assert.ok(!/學測加申請/.test(JSON.stringify(e.outcome)) && e.outcome.type === st.outcome.type);
+  }
+  assert.ok(types.size >= 3, [...types].join());
+});
+
+test('選項文字會換掉 {家長} 等固定代稱：所有卡片的畫面資料都沒有殘留的 {', () => {
+  for (const seed of [1, 2, 3, 5, 8, 13, 21, 34]) {
+    const st = newState(seed, data);
+    const ctx = buildCtx(st, data.timeline[30]);
+    for (const c of data.events.cards) {
+      const v = describeCard(c, st, ctx);
+      const all = [v.title, v.text, ...v.choices.flatMap((x) => [x.label, x.note, x.reason])].join('|');
+      assert.ok(!all.includes('{'), `${c.id}: ${all.slice(all.indexOf('{') - 10, all.indexOf('{') + 20)}`);
+    }
+  }
 });

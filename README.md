@@ -2,7 +2,7 @@
 
 你是 2026 年 8 月，全台 47 萬名高中、高職學生裡的一人。你不用打字，只負責做決定：名字、座號、縣市、學校、家庭、通勤都是抽到的。時間會自己往前跑，72 個回合（高一到高三）之後，系統才攤開你看不到的隱藏曲線。
 
-v0.1 只做「普通高中」這條線。校名皆為虛構。事件機率來自設計稿的真實統計子集（交通事故），數字多為設計假設，不是預言。
+v0.1 只做「普通高中」這條線。學校是全臺高中職的真實名冊（data/schools.json），校名遮掉一個字，只暗示不點名。事件機率來自設計稿的真實統計子集（交通事故），數字多為設計假設，不是預言。
 
 ## 在本機執行
 
@@ -38,7 +38,7 @@ js/engine/            純函式引擎，不碰 DOM，可在 Node 使用
   life.js             真實機率的人生事件
   peers.js            999 個平行同儕
   report.js           學期報告、終局報告、SVG 小圖
-data/                 identities / events / events_campus / events_payoff（前因後果卡）/ calendar / life_events（JSON）
+data/                 identities / schools（真實校名冊，由 tools/build-schools.mjs 產生）/ events / events_campus / events_payoff（前因後果卡）/ calendar / life_events（JSON）
 tests/engine.test.mjs node:test
 tools/simulate.mjs    批次模擬
 ```

@@ -498,3 +498,46 @@ test('家規：parentRule 與家長風格相關；接受規定後手機等級被
   startTurn(st, data);
   assert.equal(st.habits.手機, 4);
 });
+
+test('過年卡只會在寒假抽到；寒假變數與時間軸一致', () => {
+  const ny = data.events.cards.filter((c) => c.pool === '過年');
+  assert.ok(ny.length >= 5);
+  const st = newState(21, data);
+  for (const c of ny) {
+    for (const tl of data.timeline) {
+      assert.equal(passes(c, st, buildCtx(st, tl)) && c.id !== 'ny_shop', tl.seg === '寒假' && c.id !== 'ny_shop', `${c.id} @ ${tl.seg}`);
+    }
+  }
+  for (const tl of data.timeline) assert.equal(buildCtx(st, tl).寒假, tl.seg === '寒假');
+  // 實際遊玩：過年卡出現的回合都在寒假
+  let seen = 0;
+  for (let seed = 1; seed <= 40; seed++) {
+    const s = newState(seed, data);
+    while (!s.ended && !s.dead) {
+      const res = startTurn(s, data);
+      if (res.card && ny.some((c) => c.id === res.card.id)) { seen++; assert.equal(res.tl.seg, '寒假'); }
+      if (res.card) chooseCard(s, data, res.card.choices.find((c) => !c.disabled).i);
+      finishTurn(s, data);
+    }
+  }
+  assert.ok(seen > 0);
+});
+
+test('打工收入：一般約 3,100／回合，加班約 6,300，假期更高；詐騙會記錄在 st.scams', async () => {
+  const { workPay } = await import('../js/engine/turn.js');
+  const st = newState(4, data);
+  assert.equal(workPay(st, false), 0);
+  st.flags.打工中 = true;
+  assert.equal(workPay(st, false), 3100);
+  assert.equal(workPay(st, true), 14000);
+  st.flags.打工加班 = true;
+  assert.equal(workPay(st, false), 6300);
+  assert.ok(workPay(st, true) >= 25000);
+  const s2 = newState(5, data); s2.stats.錢包 = 5000;
+  const tl = data.timeline[4];
+  applyChoice(s2, data, data.cardIndex.scam_shop, 0, buildCtx(s2, tl), stateRng(s2), 4);
+  assert.equal(s2.scams.length, 1);
+  assert.equal(s2.scams[0].loss, 2500);
+  assert.equal(s2.stats.錢包, 2500);
+  assert.ok(s2.delayed.some((d) => d.event === 'scam_shop_loss'));
+});

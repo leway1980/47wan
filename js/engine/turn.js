@@ -65,6 +65,7 @@ const PHONE_FOCUS = [0, 0, 2, 5, 9];
 const PHONE_HAPPY = [-0.5, 0.3, 0.3, -0.2, -0.6];
 const COVER = { 自己就是資源: 0.4, 花錢買資源: 0.7, 自己找資源: 0 };
 
+const IG_LOOK_LINES = ['你的自拍被很多人按愛心。', '有人在你的貼文留言「今天好好看」，你笑了一下。', '隔壁班有人私訊說想認識你。'];
 const IG_LINES = ['你的限動被 23 個人看過，有 2 個人回覆。', '有人在限動 tag 你，你想了一下要怎麼回。', '同學私訊你：「在嗎？」你回完已經過了半小時。', '你滑了別人的出遊限動十分鐘。', '群組裡有人問你怎麼都沒回限動。', '有人按了你半年前的貼文愛心，你有點在意。', '你看到同學一起去吃飯的限動，你不在裡面。', '新追蹤你的人說是隔壁班的，你回追了。'];
 const GAME_LINES = ['每日任務還沒解完，你先上線點一下。', '限時活動只剩三天，你又打開了遊戲。', '公會戰今晚八點，你一直看時間。', '登入送十抽，你捨不得不領。', '體力條滿了，你找理由再上去一下。', '朋友說副本差一個人，你的手已經在滑。'];
 export function applyHabits(st, data, tl, r) {
@@ -75,6 +76,14 @@ export function applyHabits(st, data, tl, r) {
   if (st.rule && st.turn < st.rule.until) H.手機 = Math.min(own, st.rule.cap);
   try { return applyHabitsInner(st, data, tl, r); } finally { H.手機 = own; }
 }
+// 打工收入（基本時薪 NT$196）：學期中一週一天(8h)×2週≈16h≈3,100；週六日都去≈6,300；
+// 假期一回合約一個月，一般兼職約 14,000，排滿班（打工加班）約 25,000。
+export function workPay(st, vac) {
+  if (!st.flags.打工中) return 0;
+  const ot = !!st.flags.打工加班;
+  return vac ? (ot ? 25000 : 14000) : (ot ? 6300 : 3100);
+}
+const workLoad = (st, vac) => (st.flags.打工中 ? (vac ? (st.flags.打工加班 ? 26 : 14) : (st.flags.打工加班 ? 14 : 7)) : 0);
 function applyHabitsInner(st, data, tl, r) {
   const S = st.stats, H = st.habits, id = st.identity, idn = data.identities, fam = id.family;
   const vac = tl.vacation, len = vac ? 2 : 1;
@@ -82,8 +91,8 @@ function applyHabitsInner(st, data, tl, r) {
   /* 錢 */
   const econ = idn.econStart[fam.econ];
   const allowance = id.allowanceMonth ?? econ.allowance * 2; // 舊存檔沒有這個欄位
-  const income = (allowance / 2) * len * (vac ? 0.8 : 1) + (st.flags.打工中 ? (vac ? 1800 : 900) : 0);
-  const other = [0, 0, 80, 200][H.遊戲] * len + [0, 0, 0, 40, 80][H.手機] * len;
+  const income = (allowance / 2) * len * (vac ? 0.8 : 1) + workPay(st, vac);
+  const other = [0, 0, 80, 200][H.遊戲] * len + [0, 0, 0, 40, 80][H.手機] * len + (st.flags.打扮 ? 400 : st.flags.偶爾打扮 ? 120 : 0) * len; // 打扮：保養品、造型品、剪髮
   const avail = S.錢包 + income;
   // 補習由家裡出錢（不從零用錢扣），科數受家境上限限制；上限 0 時只剩免費的學校課輔
   let cram = Math.min(H.補習, tutorMaxLevel(st));
@@ -111,7 +120,7 @@ function applyHabitsInner(st, data, tl, r) {
   /* 時間：可自己運用的小時數 */
   const commH = vac ? 0 : idn.commuteHours[id.commute];
   const club = st.flags.社團中 ? 3 : 0;
-  const work = st.flags.打工中 ? (vac ? 14 : 7) : 0;
+  const work = workLoad(st, vac);
   let selfHours = (vac ? 40 : 22) - commH - cram * 3 - H.遊戲 * 2.5 - H.運動 * 2 - club - work - (H.手機 >= 3 ? 2 : 0);
   if (H.作業 === '上網查' && r() < 0.3) selfHours -= 1; // 順便看了一下訊息或影片
   selfHours = Math.max(1, selfHours);
@@ -135,7 +144,7 @@ function applyHabitsInner(st, data, tl, r) {
 
   /* 睡眠債：流入 − 自然恢復 */
   const bed = H.睡前手機 || H.手機 >= 4;
-  const inflow = 0.15 + (bed ? 0.8 : 0) + cram * 0.15 + H.遊戲 * 0.15 + (tl.examWeek ? 0.4 : 0) + (st.flags.打工中 ? 0.4 : 0) - H.運動 * 0.1 + fam.sleep + (H.課堂 === '補眠' && !vac ? -0.6 : 0);
+  const inflow = 0.15 + (bed ? 0.8 : 0) + cram * 0.15 + H.遊戲 * 0.15 + (tl.examWeek ? 0.4 : 0) + (st.flags.打工中 ? (st.flags.打工加班 ? 0.8 : 0.4) : 0) + (st.flags.打扮 ? 0.1 : 0) - H.運動 * 0.1 + fam.sleep + (H.課堂 === '補眠' && !vac ? -0.6 : 0);
   S.睡眠債 = clamp(S.睡眠債 + (inflow - 0.25 * S.睡眠債) * len, 0, 10);
 
   /* 牽掛（遊戲） */
@@ -165,7 +174,7 @@ function applyHabitsInner(st, data, tl, r) {
   S.AI依賴 = Math.max(0, (S.AI依賴 ?? 0) - 0.1); // 一段時間沒靠 AI，就慢慢回來
 
   /* 打工：每回合都要付出體力與讀書時間 */
-  if (st.flags.打工中) { S.體力 = clamp(S.體力 - 1, 5, 100); S.理解 = clamp(S.理解 - 0.15 * len, 0, 100); }
+  if (st.flags.打工中) { const ot = st.flags.打工加班 ? 2 : 1; S.體力 = clamp(S.體力 - ot, 5, 100); S.理解 = clamp(S.理解 - 0.15 * ot * len, 0, 100); }
   /* 手機過夜：放客廳充電的好處很小但會累積 */
   if (!H.睡前手機) {
     S.睡眠債 = clamp(S.睡眠債 - 0.3, 0, 10); S.專注 = clamp(S.專注 + 1, 15, 100);
@@ -191,8 +200,9 @@ function applyHabitsInner(st, data, tl, r) {
     const igLv = st.flags.IG常用 ? 2 : 1;
     for (let i = 0; i < 2; i++) {
       const pick = rngAt(st.seed, st.turn, 'ig' + i);
-      lines.push(IG_LINES[Math.floor(pick * IG_LINES.length)]);
-      S.聯繫 = clamp(S.聯繫 + 0.4 * igLv, 0, 100);
+      const look = st.flags.打扮 && rngAt(st.seed, st.turn, 'iglook' + i) < 0.35;
+      lines.push(look ? IG_LOOK_LINES[Math.floor(pick * IG_LOOK_LINES.length)] : IG_LINES[Math.floor(pick * IG_LINES.length)]);
+      S.聯繫 = clamp(S.聯繫 + 0.4 * igLv + (look ? 0.3 : 0), 0, 100);
       S.專注 = clamp(S.專注 - 0.6 * igLv, 15, 100);
       if (H.睡前手機) S.睡眠債 = clamp(S.睡眠債 + 0.08 * igLv, 0, 10);
       // 看到別人過得很好：心情偶爾小降（比較）
@@ -244,7 +254,7 @@ export function startTurn(st, data) {
   const r = stateRng(st);
   const cur = { tl, lines: [], notices: [], card: null, cardView: null, ctx: null };
   st.cur = cur;
-  if (!tl.vacation && tl.idx === 0 && st.flags.打工中 && !st.flags.長期打工) delete st.flags.打工中; // 暑期打工結束
+  if (!tl.vacation && tl.idx === 0 && st.flags.打工中 && !st.flags.長期打工) { delete st.flags.打工中; delete st.flags.打工加班; } // 暑期打工結束
 
   const fs = famStep(st, data, tl);
   for (const l of fs.lines) cur.lines.push({ d: 1, text: l });

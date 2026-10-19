@@ -18,7 +18,8 @@ import { generateIdentity } from '../js/engine/identity.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const rd = (f) => JSON.parse(readFileSync(join(root, 'data', f), 'utf8'));
-const raw = () => ({ identities: rd('identities.json'), events: rd('events.json'), calendar: rd('calendar.json'), life_events: rd('life_events.json') });
+const withCampus = () => { const e = rd('events.json'); e.cards.push(...rd('events_campus.json').cards); return e; };
+const raw = () => ({ identities: rd('identities.json'), events: withCampus(), calendar: rd('calendar.json'), life_events: rd('life_events.json') });
 const data = prepareData(raw());
 
 // 固定的「玩家」：習慣與選擇都由自己的亂數決定
@@ -497,4 +498,79 @@ test('家規：parentRule 與家長風格相關；接受規定後手機等級被
   st.turn = 12;
   startTurn(st, data);
   assert.equal(st.habits.手機, 4);
+});
+
+test('資料對齊：事件用到的數值、習慣、變數、延遲事件都存在', async () => {
+  const { lintData } = await import('../tools/lint-data.mjs');
+  const { errors } = lintData();
+  assert.deepEqual(errors, []);
+});
+
+test('過年卡只會在寒假抽到；寒假變數與時間軸一致', () => {
+  const ny = data.events.cards.filter((c) => c.pool === '過年');
+  assert.ok(ny.length >= 5);
+  const st = newState(21, data);
+  for (const c of ny) {
+    for (const tl of data.timeline) {
+      assert.equal(passes(c, st, buildCtx(st, tl)) && c.id !== 'ny_shop', tl.seg === '寒假' && c.id !== 'ny_shop', `${c.id} @ ${tl.seg}`);
+    }
+  }
+  for (const tl of data.timeline) assert.equal(buildCtx(st, tl).寒假, tl.seg === '寒假');
+  // 實際遊玩：過年卡出現的回合都在寒假
+  let seen = 0;
+  for (let seed = 1; seed <= 40; seed++) {
+    const s = newState(seed, data);
+    while (!s.ended && !s.dead) {
+      const res = startTurn(s, data);
+      if (res.card && ny.some((c) => c.id === res.card.id)) { seen++; assert.equal(res.tl.seg, '寒假'); }
+      if (res.card) chooseCard(s, data, res.card.choices.find((c) => !c.disabled).i);
+      finishTurn(s, data);
+    }
+  }
+  assert.ok(seen > 0);
+});
+
+test('打工收入：一般約 3,100／回合，加班約 6,300，假期更高；詐騙會記錄在 st.scams', async () => {
+  const { workPay } = await import('../js/engine/turn.js');
+  const st = newState(4, data);
+  assert.equal(workPay(st, false), 0);
+  st.flags.打工中 = true;
+  assert.equal(workPay(st, false), 3100);
+  assert.equal(workPay(st, true), 14000);
+  st.flags.打工加班 = true;
+  assert.equal(workPay(st, false), 6300);
+  assert.ok(workPay(st, true) >= 25000);
+  const s2 = newState(5, data); s2.stats.錢包 = 5000;
+  const tl = data.timeline[4];
+  applyChoice(s2, data, data.cardIndex.scam_shop, 0, buildCtx(s2, tl), stateRng(s2), 4);
+  assert.equal(s2.scams.length, 1);
+  assert.equal(s2.scams[0].loss, 2500);
+  assert.equal(s2.stats.錢包, 2500);
+  assert.ok(s2.delayed.some((d) => d.event === 'scam_shop_loss'));
+});
+
+test('delayed 的 if 條件：自律才排好結果、不自律才排壞結果；ctx 有性別', () => {
+  const tl = data.timeline[56];
+  const card = data.cardIndex.campus_y3_retreat;
+  const run = (phone, game) => {
+    const st = newState(7, data); st.habits.手機 = phone; st.habits.遊戲 = game; st.turn = 56;
+    applyChoice(st, data, card, 3, buildCtx(st, tl), stateRng(st), 56);
+    return st.delayed.map((d) => d.event);
+  };
+  assert.ok(!run(3, 1).includes('home_study_good'));
+  assert.ok(!run(1, 0).includes('home_study_bad'));
+  for (let i = 0; i < 1; i++) assert.ok(['男', '女'].includes(buildCtx(newState(7, data), tl).性別));
+});
+
+test('校園卡：學測前閉關一個月在高三上最後幾回合出現', () => {
+  let seen = 0;
+  for (let seed = 1; seed <= 20; seed++) {
+    const st = newState(seed, data);
+    for (let t = 0; t < 58 && !st.ended; t++) {
+      const res = startTurn(st, data);
+      if (res.card) { if (res.card.id === 'campus_y3_retreat') { seen++; assert.equal(st.turn, 55); } chooseCard(st, data, res.card.choices.find((c) => !c.disabled).i); }
+      finishTurn(st, data); st.reportPending = null;
+    }
+  }
+  assert.equal(seen, 20, `閉關出現 ${seen}/20`);
 });

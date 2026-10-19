@@ -107,14 +107,16 @@ function applyHabitsInner(st, data, tl, r) {
   // 零用錢怎麼用：花掉（吃喝玩樂）／存下／投資（定期定額，類似大盤 ETF 的簡化模型）
   const mode = H.零用錢 || '花掉';
   let w = Math.max(0, avail - other);
-  w -= Math.min(w, income * { 花掉: 0.6, 存下: 0.1, 投資: 0.1 }[mode]);
+  // 零用錢大多會花在飲料、零食、交通、出去玩；只有決定存起來的人，才會留下一半左右
+  const fare = vac ? 0 : ({ 公車: 400, 捷運: 400, 無照騎機車: 250, 機車: 250, 微電車: 60 }[id.commute] || 0);
+  w -= Math.min(w, fare + income * { 花掉: 0.9, 存下: 0.5, 投資: 0.5 }[mode]);
   if ((S.投資 ?? 0) > 0) {
     const rr = mulberry32((st.seed ^ Math.imul(st.turn + 7, 0x85ebca6b)) >>> 0);
     const ret = 0.0027 + 0.035 * gauss(rr); // 約 +7%／年、波動約 18%／年，換算成兩週一回合
     S.投資 = Math.max(0, S.投資 * (1 + ret));
   }
   if (mode === '投資') {
-    const x = Math.min(w, income * 0.8);
+    const x = Math.min(w, income * 0.4);
     w -= x; S.投資 = (S.投資 ?? 0) + x; S.投資本金 = (S.投資本金 ?? 0) + x;
     if (!st.flags.投資說明) { st.flags.投資說明 = true; lines.push('未成年要由家長協助開戶（例如定期定額 ETF）；遊戲數字是簡化的示意，不是投資建議。'); }
   }

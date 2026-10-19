@@ -32,7 +32,9 @@ export function computeOutcome(st) {
   // 段考常常不及格的人，幾乎不可能上國立大學
   const test = 25 + 0.75 * (st.final ?? st.gsat ?? st.stats.理解);
   const ex = st.examScores && st.examScores.length ? st.examScores.reduce((a, b) => a + b, 0) / st.examScores.length : test;
-  const s = 0.6 * test + 0.4 * ex;
+  // 申請入學報的校系越多，越有機會上（報名費要自己或家裡付）
+  const appBonus = st.flags.申請多 ? 2 : st.flags.申請少 ? -3 : 0;
+  const s = 0.6 * test + 0.4 * ex + appBonus;
   const u = rngAt(st.seed, 99, 'final');
   const group = st.flags.自然學群 ? '自然學群' : st.flags.文法商學群 ? '文法商學群' : st.stats.理解 >= 50 ? '自然學群' : '文法商學群';
   const dept = DEPTS[group][Math.floor(rngAt(st.seed, 98, 'dept') * DEPTS[group].length)];
@@ -304,11 +306,19 @@ export function buildEnding(st, data) {
   const moneyLine = nMode(2) >= 36 && (S.投資 ?? 0) > 0 ? '高中開始的定期定額，到 30 歲變成一筆不小的存款。'
     : spends >= 2 || nMode(0) >= 50 ? '你的錢包常常月底歸零，但朋友很多，回憶也很多。'
       : nMode(1) >= 36 || (S.錢包 >= 3000 && spends === 0) ? '你存下了人生的第一筆錢，那是高中時一點一滴留下來的。' : '';
+  // 畢業時手上的錢，決定上大學第一年要不要一入學就打工
+  const nest = Math.round((S.錢包 || 0) + (S.投資 || 0));
+  const econNow = id.family.econ;
+  const uniMoney = o.retake ? ''
+    : nest >= 40000 ? `高中存下的 ${nest.toLocaleString('en-US')} 元，讓你大一不用急著打工，可以專心適應大學。`
+      : nest >= 15000 ? `高中存下的錢，剛好夠你付大一上學期的生活費。`
+        : econNow === '吃緊' ? '上大學的第一個月，你就辦了就學貸款，也找了晚上的打工。'
+          : '大一開學前，你發現手上幾乎沒有存款，生活費得每個月跟家裡拿。';
   const txt = archetypeText(k, { name: id.name, friend, school: id.school, o, dept: o.dept, county: id.county });
   return {
     archetype: k, tag: txt.tag, line: txt.line, header, dead: false, outcome: o,
     sections: [
-      { age: '18 歲', text: txt.a18 + (st.flags.記_店長推薦 ? '便當店的店長說，畢業後隨時歡迎你回去上班。' : '') }, { age: '22 歲', text: txt.a22 },
+      { age: '18 歲', text: txt.a18 + (st.flags.記_店長推薦 ? '便當店的店長說，畢業後隨時歡迎你回去上班。' : '') }, { age: '22 歲', text: uniMoney + txt.a22 },
       { age: '25 歲', text: txt.a25 + moneyLine }, { age: '30 歲', text: txt.a30 },
     ],
     good: txt.good, regret: txt.regret, curves, chosenDrawn: { chosen, drawn }, whatIf, payoffs,

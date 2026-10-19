@@ -3,58 +3,299 @@
   "startDate": "2026-08-31",
   "years": 3,
   "segments": [
-    {"name":"上學期","turns":10,"start":"09-01","vacation":false},
-    {"name":"寒假","turns":2,"start":"01-20","vacation":true},
-    {"name":"下學期","turns":10,"start":"02-20","vacation":false},
-    {"name":"暑假","turns":2,"start":"07-01","vacation":true}
+    {
+      "name": "上學期",
+      "turns": 10,
+      "start": "09-01",
+      "vacation": false
+    },
+    {
+      "name": "寒假",
+      "turns": 2,
+      "start": "01-20",
+      "vacation": true
+    },
+    {
+      "name": "下學期",
+      "turns": 10,
+      "start": "02-20",
+      "vacation": false
+    },
+    {
+      "name": "暑假",
+      "turns": 2,
+      "start": "07-01",
+      "vacation": true
+    }
   ],
   "fixed": [
-    {"year":1,"seg":"上學期","idx":0,"kind":"card","event":"orientation"},
-    {"year":1,"seg":"上學期","idx":2,"kind":"card","event":"club_choice"},
-    {"seg":"上學期","idx":3,"kind":"exam","name":"第一次段考"},
-    {"seg":"上學期","idx":6,"kind":"exam","name":"期中考"},
-    {"seg":"上學期","idx":9,"kind":"exam","name":"期末考"},
-    {"seg":"下學期","idx":3,"kind":"exam","name":"第一次段考"},
-    {"seg":"下學期","idx":6,"kind":"exam","name":"期中考"},
-    {"seg":"下學期","idx":9,"kind":"exam","name":"期末考"},
-    {"year":1,"seg":"下學期","idx":5,"kind":"card","event":"track_choice"},
-    {"year":1,"seg":"寒假","idx":0,"kind":"card","event":"winter_plan"},
-    {"year":2,"seg":"寒假","idx":0,"kind":"card","event":"winter_plan"},
-    {"year":2,"seg":"下學期","idx":4,"kind":"card","event":"campus_graduation_trip"},
-    {"year":3,"seg":"上學期","idx":4,"kind":"card","event":"campus_hundred_days"},
-    {"year":3,"seg":"上學期","idx":7,"kind":"card","event":"campus_y3_retreat"},
-    {"year":3,"seg":"下學期","idx":8,"kind":"card","event":"campus_grad_eve"},
-    {"year":1,"seg":"暑假","idx":0,"kind":"card","event":"summer_plan"},
-    {"year":2,"seg":"暑假","idx":0,"kind":"card","event":"summer_plan"},
-    {"year":3,"seg":"寒假","idx":0,"kind":"gsat","name":"學測"},
-    {"year":3,"seg":"下學期","idx":5,"kind":"apply","name":"申請入學放榜"},
-    {"year":3,"seg":"暑假","idx":0,"kind":"fenke","name":"分科測驗與登記分發"}
+    {
+      "year": 1,
+      "seg": "上學期",
+      "idx": 0,
+      "kind": "card",
+      "event": "orientation"
+    },
+    {
+      "year": 1,
+      "seg": "上學期",
+      "idx": 2,
+      "kind": "card",
+      "event": "club_choice"
+    },
+    {
+      "seg": "上學期",
+      "idx": 3,
+      "kind": "exam",
+      "name": "第一次段考"
+    },
+    {
+      "seg": "上學期",
+      "idx": 6,
+      "kind": "exam",
+      "name": "期中考"
+    },
+    {
+      "seg": "上學期",
+      "idx": 9,
+      "kind": "exam",
+      "name": "期末考"
+    },
+    {
+      "seg": "下學期",
+      "idx": 3,
+      "kind": "exam",
+      "name": "第一次段考"
+    },
+    {
+      "seg": "下學期",
+      "idx": 6,
+      "kind": "exam",
+      "name": "期中考"
+    },
+    {
+      "seg": "下學期",
+      "idx": 9,
+      "kind": "exam",
+      "name": "期末考"
+    },
+    {
+      "year": 1,
+      "seg": "下學期",
+      "idx": 5,
+      "kind": "card",
+      "event": "track_choice"
+    },
+    {
+      "year": 1,
+      "seg": "寒假",
+      "idx": 0,
+      "kind": "card",
+      "event": "winter_plan"
+    },
+    {
+      "year": 2,
+      "seg": "寒假",
+      "idx": 0,
+      "kind": "card",
+      "event": "winter_plan"
+    },
+    {
+      "year": 2,
+      "seg": "下學期",
+      "idx": 4,
+      "kind": "card",
+      "event": "campus_graduation_trip"
+    },
+    {
+      "year": 3,
+      "seg": "上學期",
+      "idx": 4,
+      "kind": "card",
+      "event": "campus_hundred_days"
+    },
+    {
+      "year": 3,
+      "seg": "上學期",
+      "idx": 7,
+      "kind": "card",
+      "event": "campus_y3_retreat"
+    },
+    {
+      "year": 3,
+      "seg": "下學期",
+      "idx": 8,
+      "kind": "card",
+      "event": "campus_grad_eve"
+    },
+    {
+      "year": 1,
+      "seg": "暑假",
+      "idx": 0,
+      "kind": "card",
+      "event": "summer_plan"
+    },
+    {
+      "year": 2,
+      "seg": "暑假",
+      "idx": 0,
+      "kind": "card",
+      "event": "summer_plan"
+    },
+    {
+      "year": 3,
+      "seg": "寒假",
+      "idx": 0,
+      "kind": "gsat",
+      "name": "學測"
+    },
+    {
+      "year": 3,
+      "seg": "下學期",
+      "idx": 5,
+      "kind": "apply",
+      "name": "申請入學放榜"
+    },
+    {
+      "year": 3,
+      "seg": "暑假",
+      "idx": 0,
+      "kind": "fenke",
+      "name": "分科測驗與登記分發"
+    },
+    {
+      "year": 3,
+      "seg": "下學期",
+      "idx": 1,
+      "kind": "card",
+      "event": "apply_fees"
+    }
   ],
   "flavor": [
-    {"if":"通勤 == '公車'","text":"公車誤點，第一節差點遲到。","w":3},
-    {"if":"通勤 == '捷運'","text":"捷運上擠得動不了，單字本只翻了兩頁。","w":3},
-    {"if":"通勤 == '腳踏車'","text":"腳踏車的鏈條又掉了，到校時手上都是油。","w":2},
-    {"if":"通勤 == '走路'","text":"走路上學的路上，順手買了一份早餐。","w":2},
-    {"if":"通勤 == '家長接送'","text":"車上家長問了一句：「最近學校還好嗎？」","w":2},
-    {"if":"睡眠債 >= 4","text":"早上鬧鐘響了三次才爬起來。","w":4},
-    {"if":"睡眠債 < 1.5","text":"最近睡得不錯，早上自己就醒了。","w":2},
-    {"if":"專注 < 50","text":"數學課你看著黑板，卻不知道老師講到哪一題。","w":4},
-    {"if":"專注 >= 75","text":"今天的物理課，你居然全程跟上了。","w":3},
-    {"if":"手機 >= 3","text":"群組跳出九十九則未讀，你花了一節下課才看完。","w":3},
-    {"if":"手機 == 0","text":"你把手機收進書包最底層，下課有點無聊。","w":2},
-    {"if":"遊戲 >= 2","text":"下課時你滿腦子都在想晚上的副本。","w":3},
-    {"if":"補習 >= 2","text":"補習班的講義又多了一疊，桌上快放不下。","w":3},
-    {"if":"運動 >= 1","text":"放學後去操場跑了幾圈，流了汗心情好很多。","w":3},
-    {"if":"體力 < 40","text":"午休你趴在桌上，一覺睡到鐘響。","w":4},
-    {"if":"錢包 < 300","text":"福利社的點心看了看，還是沒買。","w":3},
-    {"if":"知心 >= 3","text":"放學後和知心的朋友在校門口聊了很久。","w":3},
-    {"if":"知心 <= 1","text":"午餐你一個人吃完，看了一會兒窗外。","w":2},
-    {"if":"考試週","text":"考前一週，班上的氣氛有點緊繃。","w":4},
-    {"if":"#打工中","text":"打工結束回到家已經十點多，作業還沒動。","w":3},
-    {"if":"#交往中","text":"和對方傳訊息傳到忘了時間。","w":3},
-    {"if":"true","text":"福利社排隊排了很久，最後只剩一個麵包。","w":1},
-    {"if":"true","text":"導師在班會課宣布了下個月的行事曆。","w":1},
-    {"if":"true","text":"下課時有人在走廊玩起了桌遊，吵吵鬧鬧的。","w":1},
-    {"if":"true","text":"掃地時間，你和同學邊掃邊聊了學校的八卦。","w":1}
+    {
+      "if": "通勤 == '公車'",
+      "text": "公車誤點，第一節差點遲到。",
+      "w": 3
+    },
+    {
+      "if": "通勤 == '捷運'",
+      "text": "捷運上擠得動不了，單字本只翻了兩頁。",
+      "w": 3
+    },
+    {
+      "if": "通勤 == '腳踏車'",
+      "text": "腳踏車的鏈條又掉了，到校時手上都是油。",
+      "w": 2
+    },
+    {
+      "if": "通勤 == '走路'",
+      "text": "走路上學的路上，順手買了一份早餐。",
+      "w": 2
+    },
+    {
+      "if": "通勤 == '家長接送'",
+      "text": "車上家長問了一句：「最近學校還好嗎？」",
+      "w": 2
+    },
+    {
+      "if": "睡眠債 >= 4",
+      "text": "早上鬧鐘響了三次才爬起來。",
+      "w": 4
+    },
+    {
+      "if": "睡眠債 < 1.5",
+      "text": "最近睡得不錯，早上自己就醒了。",
+      "w": 2
+    },
+    {
+      "if": "專注 < 50",
+      "text": "數學課你看著黑板，卻不知道老師講到哪一題。",
+      "w": 4
+    },
+    {
+      "if": "專注 >= 75",
+      "text": "今天的物理課，你居然全程跟上了。",
+      "w": 3
+    },
+    {
+      "if": "手機 >= 3",
+      "text": "群組跳出九十九則未讀，你花了一節下課才看完。",
+      "w": 3
+    },
+    {
+      "if": "手機 == 0",
+      "text": "你把手機收進書包最底層，下課有點無聊。",
+      "w": 2
+    },
+    {
+      "if": "遊戲 >= 2",
+      "text": "下課時你滿腦子都在想晚上的副本。",
+      "w": 3
+    },
+    {
+      "if": "補習 >= 2",
+      "text": "補習班的講義又多了一疊，桌上快放不下。",
+      "w": 3
+    },
+    {
+      "if": "運動 >= 1",
+      "text": "放學後去操場跑了幾圈，流了汗心情好很多。",
+      "w": 3
+    },
+    {
+      "if": "體力 < 40",
+      "text": "午休你趴在桌上，一覺睡到鐘響。",
+      "w": 4
+    },
+    {
+      "if": "錢包 < 300",
+      "text": "福利社的點心看了看，還是沒買。",
+      "w": 3
+    },
+    {
+      "if": "知心 >= 3",
+      "text": "放學後和知心的朋友在校門口聊了很久。",
+      "w": 3
+    },
+    {
+      "if": "知心 <= 1",
+      "text": "午餐你一個人吃完，看了一會兒窗外。",
+      "w": 2
+    },
+    {
+      "if": "考試週",
+      "text": "考前一週，班上的氣氛有點緊繃。",
+      "w": 4
+    },
+    {
+      "if": "#打工中",
+      "text": "打工結束回到家已經十點多，作業還沒動。",
+      "w": 3
+    },
+    {
+      "if": "#交往中",
+      "text": "和對方傳訊息傳到忘了時間。",
+      "w": 3
+    },
+    {
+      "if": "true",
+      "text": "福利社排隊排了很久，最後只剩一個麵包。",
+      "w": 1
+    },
+    {
+      "if": "true",
+      "text": "導師在班會課宣布了下個月的行事曆。",
+      "w": 1
+    },
+    {
+      "if": "true",
+      "text": "下課時有人在走廊玩起了桌遊，吵吵鬧鬧的。",
+      "w": 1
+    },
+    {
+      "if": "true",
+      "text": "掃地時間，你和同學邊掃邊聊了學校的八卦。",
+      "w": 1
+    }
   ]
 }

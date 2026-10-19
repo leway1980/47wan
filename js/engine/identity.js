@@ -67,6 +67,19 @@ export const structureLine = (f) => ({
 
 export const SUBJECTS = ['國文', '英文', '數學', '自然', '社會'];
 
+// 校名的類型決定大多數學生讀哪些群：高工多是機電、高商多是商管；工商、綜高等混合型不偏
+const GROUP_FIT = [
+  [/高工$/, ['機械', '電機與電子', '動力機械', '化工', '土木與建築', '設計']],
+  [/高商$/, ['商業與管理', '外語', '設計', '餐旅']],
+  [/(家商|家職|護家|高家)$/, ['家政', '餐旅', '商業與管理', '設計']],
+  [/(高農|農工)$/, ['農業', '食品', '機械', '電機與電子']],
+  [/(海事|水產)/, ['水產', '動力機械', '餐旅', '商業與管理']],
+];
+export function groupFit(schoolName, group) {
+  const hit = GROUP_FIT.find(([re]) => re.test(schoolName));
+  return !hit ? 1 : hit[1].includes(group) ? 6 : 0.1;
+}
+
 export function generateIdentity(seed, idn) {
   const r = mulberry32((seed ^ 0x51ed270b) >>> 0);
   const surname = pickWeighted(r, idn.surnames.map((n, k) => ({ n, w: idn.surnameW[k] })), (x) => x.w).n;
@@ -87,9 +100,11 @@ export function generateIdentity(seed, idn) {
   // 綜高校的學生多半讀普通科或綜合學程，只有職業類科的才算技高：學程用獨立亂數流
   const program = sch.kind === '綜高' ? pickWeighted(mulberry32((seed ^ 0x2c1b3c6d) >>> 0), idn.programs, (x) => x.w).n : sch.kind === '技高' ? '專業群科' : '普通科';
   const kind = program === '職業類科' || program === '專業群科' ? '技高' : sch.kind === '單科' ? '單科' : '普高';
-  const vocGroup = kind === '技高' ? pickWeighted(rs, idn.vocGroups, (x) => x.w).n : null;
+  const vocGroup = kind === '技高' ? pickWeighted(rs, idn.vocGroups, (x) => x.w * groupFit(sch.n, x.n)).n : null;
   const style = pick(r, idn.styles);
-  const commute = rollCommute(r, idn, county, fam.econ);
+  // 有捷運的縣市也不是每一區都有站：住的區沒有捷運站就不會抽到捷運
+  const mrt = !!county.mrt && (!county.mrtDistricts || county.mrtDistricts.includes(district));
+  const commute = rollCommute(r, idn, { ...county, mrt }, fam.econ);
   const av = idn.avatar;
   const look = {
     bottom: sex === '男' ? '長褲' : (ra() < 0.75 ? '裙' : '長褲'),
@@ -122,7 +137,7 @@ export function generateIdentity(seed, idn) {
     county: county.name,
     district,
     tier: county.tier,
-    mrt: county.mrt,
+    mrt,
     schoolId: schoolType.id,
     schoolType: schoolType.name,
     school,

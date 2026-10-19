@@ -33,8 +33,8 @@ async function loadData() {
     if (!r.ok) throw new Error(`載入 ${f} 失敗 (${r.status})`);
     return r.json();
   };
-  const [identities, events, calendar, life_events, campus, payoff] = await Promise.all(['identities.json', 'events.json', 'calendar.json', 'life_events.json', 'events_campus.json', 'events_payoff.json'].map(get));
-  events.cards.push(...campus.cards, ...payoff.cards); // 校園事件、前因後果卡放在獨立檔案
+  const [identities, events, calendar, life_events, campus, payoff, dating] = await Promise.all(['identities.json', 'events.json', 'calendar.json', 'life_events.json', 'events_campus.json', 'events_payoff.json', 'events_dating.json'].map(get));
+  events.cards.push(...campus.cards, ...payoff.cards, ...dating.cards); // 校園事件、前因後果卡、交往事件放在獨立檔案
   data = prepareData({ identities, events, calendar, life_events });
 }
 

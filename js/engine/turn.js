@@ -2,12 +2,13 @@
 import { SUBJECTS } from './identity.js';
 import { mulberry32, stateRng, rngAt, gauss, pickWeighted, clamp } from './rng.js';
 import { tutorMaxLevel, tutorIsFree, famStep } from './family.js';
-import { buildCtx, drawCard, describeCard, applyChoice, applyEffects, cardById, evalCond, compile, passes } from './events.js';
+import { buildCtx, drawCard, drawDatingCard, ensurePartner, fill, describeCard, applyChoice, applyEffects, cardById, evalCond, compile, passes } from './events.js';
 import { checkLife, DEATH_LINE } from './life.js';
 import { stepPeers } from './peers.js';
 import { computeOutcome, semesterReport, formatDate, formatDateLong } from './report.js';
 
 export const TOTAL_TURNS = 72;
+export const DATE_CARD_P = 0.65; // 交往中每回合額外嘗試抽一張交往卡的機率
 const DAY = 86400000;
 export { formatDate, formatDateLong };
 
@@ -68,6 +69,22 @@ const COVER = { 自己就是資源: 0.4, 花錢買資源: 0.7, 自己找資源: 
 const IG_LOOK_LINES = ['你的自拍被很多人按愛心。', '有人在你的貼文留言「今天好好看」，你笑了一下。', '隔壁班有人私訊說想認識你。'];
 const IG_LINES = ['你的限動被 23 個人看過，有 2 個人回覆。', '有人在限動 tag 你，你想了一下要怎麼回。', '同學私訊你：「在嗎？」你回完已經過了半小時。', '你滑了別人的出遊限動十分鐘。', '群組裡有人問你怎麼都沒回限動。', '有人按了你半年前的貼文愛心，你有點在意。', '你看到同學一起去吃飯的限動，你不在裡面。', '新追蹤你的人說是隔壁班的，你回追了。'];
 const GAME_LINES = ['每日任務還沒解完，你先上線點一下。', '限時活動只剩三天，你又打開了遊戲。', '公會戰今晚八點，你一直看時間。', '登入送十抽，你捨不得不領。', '體力條滿了，你找理由再上去一下。', '朋友說副本差一個人，你的手已經在滑。'];
+// 交往中每回合固定出現的相處小事：好處是心情與知心，代價是專注與睡眠（時間與手機）
+export const COUPLE_LINES = [
+  { t: '放學一起走到公車站，{對象}把耳機分你一邊。', mood: 1.2, know: 0.05, focus: 0.3 },
+  { t: '睡前視訊講了一小時，掛掉才發現已經過了十二點。', mood: 1, know: 0.06, focus: 0.8, sleep: 0.25 },
+  { t: '{對象}傳了一張你上課打瞌睡的照片，附上「睡得很香喔」。', mood: 0.8, know: 0.04, focus: 0.5 },
+  { t: '午餐一起吃，被同學起鬨，你們兩個都低頭扒飯。', mood: 1, know: 0.04, focus: 0.2, link: 0.3 },
+  { t: '下課{對象}繞到你的教室門口，只是來說「午休不要睡過頭」。', mood: 1, know: 0.04, focus: 0.4 },
+  { t: '你們傳了一整節課的貼圖，老師看了你一眼。', mood: 1, know: 0.03, focus: 1.1, sleep: 0.05 },
+  { t: '{對象}幫你留了福利社最後一個麵包。', mood: 1.2, know: 0.04, focus: 0.1 },
+  { t: '晚上說好只聊五分鐘，結果聊了一個小時。', mood: 1, know: 0.06, focus: 0.6, sleep: 0.2 },
+  { t: '{對象}在你的聯絡簿角落畫了一隻很醜的貓。', mood: 0.9, know: 0.03, focus: 0.2 },
+  { t: '你們約好各自讀書，卻每隔十分鐘就互丟一張自拍。', mood: 0.8, know: 0.04, focus: 1, sleep: 0.05 },
+  { t: '一起等公車，錯過了兩班，誰都沒說要先走。', mood: 1.2, know: 0.05, focus: 0.3 },
+  { t: '你在筆記本邊角寫下{對象}的名字，又趕快塗掉。', mood: 0.8, know: 0.02, focus: 0.7 },
+  { t: '{對象}說今天的你看起來很累，硬塞了一罐熱奶茶給你。', mood: 1.2, know: 0.06, focus: 0.1 },
+];
 export const PHONE_CREEP = 0.03; // 每回合手機用量慢慢變多的機率；自然爬升最多到 3 級，4 級只會因為事件
 const CREEP_LINE = '不知不覺，你滑手機的時間又變長了。';
 export function applyHabits(st, data, tl, r) {
@@ -216,6 +233,24 @@ function applyHabitsInner(st, data, tl, r) {
       if (rngAt(st.seed, st.turn, 'igcmp' + i) < 0.3) S.心情 = clamp(S.心情 - 1, 0, 100); else S.心情 = clamp(S.心情 + 0.5, 0, 100);
     }
   }
+  /* 交往中：每回合 1–2 件相處的小事 */
+  if (st.flags.交往中) {
+    ensurePartner(st, st.turn, idn);
+    const n = rngAt(st.seed, st.turn, 'cpl') < 0.5 ? 2 : 1;
+    const used = [];
+    for (let i = 0; i < n; i++) {
+      let k = Math.floor(rngAt(st.seed, st.turn, 'cpl' + i) * COUPLE_LINES.length);
+      while (used.includes(k)) k = (k + 1) % COUPLE_LINES.length;
+      used.push(k);
+      const L = COUPLE_LINES[k];
+      lines.push({ couple: true, text: fill(L.t, st) });
+      S.心情 = clamp(S.心情 + L.mood, 0, 100);
+      S.知心 = clamp(S.知心 + L.know, 0, 5);
+      S.專注 = clamp(S.專注 - L.focus, 15, 100);
+      if (L.sleep) S.睡眠債 = clamp(S.睡眠債 + L.sleep, 0, 10);
+      if (L.link) S.聯繫 = clamp(S.聯繫 + L.link, 0, 100);
+    }
+  }
   return lines;
 }
 
@@ -265,7 +300,7 @@ export function startTurn(st, data) {
 
   const fs = famStep(st, data, tl);
   for (const l of fs.lines) cur.lines.push({ d: 1, text: l });
-  for (const l of applyHabits(st, data, tl, r)) cur.lines.push({ d: 2, text: l });
+  for (const l of applyHabits(st, data, tl, r)) cur.lines.push(typeof l === 'string' ? { d: 2, text: l } : { d: 2, text: l.text, couple: true });
   if (tl.vacation && tl.seg === '寒假' && tl.idx === 0) { // 過年紅包：1,000–4,000，家境寬裕的給得多
     const bonus = { 寬裕: 800, 小康: 0, 吃緊: -300 }[st.identity.family.econ];
     const amt = Math.round((1000 + rngAt(st.seed, st.turn, 'angpao') * 2700 + bonus) / 100) * 100;
@@ -316,6 +351,8 @@ export function startTurn(st, data) {
     const pool = data.events.cards.filter((c) => c.pool === '遊戲' && (st.cooldowns[c.id] || -1) <= st.turn && passes(c, st, ctx));
     if (pool.length) cur.card = pickWeighted(r, pool, (c) => c.weight ?? 1);
   }
+  // 交往中：感情卡額外加抽，讓這段關係幾乎每隔一兩回合就有新的事；固定劇情與延遲後續仍然優先
+  if (!cur.card && st.flags.交往中 && rngAt(st.seed, st.turn, 'datecard') < DATE_CARD_P) cur.card = drawDatingCard(st, data, ctx, r);
   if (!cur.card && r() < (tl.vacation ? 0.85 : 0.7)) cur.card = drawCard(st, data, ctx, r);
   cur.cardView = cur.card ? describeCard(cur.card, st, ctx) : null;
   return { tl, notices: cur.notices, card: cur.cardView, dead: false };
@@ -367,8 +404,12 @@ export function finishTurn(st, data) {
   const fl = flavorLines(st, data, tl, r, Math.max(1, Math.min(2, want - lines.length)));
   for (const t of fl) lines.push({ d: 1, text: t });
   // 最多 4 行（優先保留卡片結果與考試）
+  // 交往中的相處小事每回合都要留一行：先丟風味句，再丟 IG／遊戲的雜訊，最後才動到其他行
   while (lines.length > 4) {
-    const i = lines.findIndex((l) => l.d === 1 && fl.includes(l.text));
+    let i = lines.findIndex((l) => l.d === 1 && fl.includes(l.text));
+    if (i < 0) i = lines.map((l, k) => (l.d === 2 && !l.couple ? k : -1)).filter((k) => k >= 0).pop() ?? -1;
+    if (i < 0) i = lines.map((l, k) => (!l.couple && l.d !== 0 ? k : -1)).filter((k) => k >= 0).pop() ?? -1;
+    if (i < 0) i = lines.findIndex((l, k) => l.couple && lines.filter((x) => x.couple).length > 1 && k >= 0);
     lines.splice(i >= 0 ? i : lines.length - 1, 1);
   }
   // 安排日期：d=0 為本回合第一天，其餘隨機散開、排序

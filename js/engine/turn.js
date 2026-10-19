@@ -7,7 +7,7 @@ import { checkLife, DEATH_LINE } from './life.js';
 import { stepPeers } from './peers.js';
 import { computeOutcome, semesterReport, formatDate, formatDateLong } from './report.js';
 
-export const TOTAL_TURNS = 72;
+export const TOTAL_TURNS = 70; // 3 學年 × 24 回合，扣掉畢業後沒有的最後一個暑假（2 回合）
 export const DATE_CARD_P = 0.65; // 交往中每回合額外嘗試抽一張交往卡的機率
 const DAY = 86400000;
 export { formatDate, formatDateLong };
@@ -18,13 +18,14 @@ export function buildTimeline(cal) {
   const segs = [];
   for (let k = 0; k < cal.years; k++) {
     for (const s of cal.segments) {
+      if (k === cal.years - 1 && s.name === '暑假') continue; // 畢業之後沒有暑假：最後一個學期結束就是結局
       const [mm, dd] = s.start.split('-').map(Number);
       const yr = mm >= 8 ? y0 + k : y0 + k + 1;
       segs.push({ ...s, year: k + 1, t0: Date.UTC(yr, mm - 1, dd) });
     }
   }
   segs[0].t0 = Date.parse(cal.startDate + 'T00:00:00Z');
-  const lastEnd = Date.UTC(y0 + cal.years, 7, 31);
+  const lastEnd = Date.UTC(y0 + cal.years, 6, 1);
   const tls = [];
   segs.forEach((s, si) => {
     const next = si + 1 < segs.length ? segs[si + 1].t0 : lastEnd;
@@ -304,7 +305,7 @@ function runFixed(st, data, tl, f, r, out) {
     out.notices.push({ kind: 'info', title: '放榜', text: t });
     out.lines.push({ d: 1, text: '申請入學放榜了。' });
   } else if (f.kind === 'fenke') {
-    out.notices.push({ kind: 'info', title: '高中最後一個暑假', text: st.outcome && st.outcome.retake ? '你決定重考一年，在補習班租了一個位子。' : '分科測驗和登記分發都有了結果，你要去的地方已經確定了。你開始整理行李，也想起三年來的很多人。' });
+    out.notices.push({ kind: 'info', title: '畢業典禮', text: st.outcome && st.outcome.retake ? '畢業典禮結束後，你沒有跟大家一起去聚餐。你已經決定重考，七月考完分科，就要去補習班租一個位子。' : '畢業典禮那天，大家在校門口拍了很多張照片。你要去的地方已經確定了，回家路上你想起三年來的很多人。' });
   }
 }
 

@@ -70,6 +70,22 @@ export function peerCounts(st, data) {
  * 只做兩件事：依習慣更新數值、擲人生事件骰；外加中輟機率與補習／打工的切換。
  */
 const NOOP = () => {};
+const FEED_MAX = 12, FEED_P = 0.15; // 不認識的同屆：只偶爾留下一則「聽說」的消息
+const JOBS = ['手搖飲店', '便利商店', '補習班櫃台', '早餐店', '火鍋店'];
+// 每個同儕編號對應固定的「路人」身分（縣市、學校類型、姓名），與主 rng 分開抽，不影響原有結果
+function peerPhrase(st, idn, idx, kind) {
+  const q = mulberry32((st.seed ^ (idx * 2654435761)) >>> 0);
+  const county = pickWeighted(q, idn.counties, (c) => c.w);
+  if (kind === '死亡') return `聽說${county.name}有一位同屆的學生在車禍中離開了。`;
+  const type = rollSchool(q, idn, county).name;
+  const male = q() < 0.5;
+  const name = pickWeighted(q, idn.surnames.map((n, k) => ({ n, w: idn.surnameW[k] })), (x) => x.w).n + pick(q, male ? idn.givenNamesM : idn.givenNamesF);
+  const ph = {
+    打工: `這學期開始在${pick(q, JOBS)}打工`, 交往: '交往了', 分手: '和對象分手了，最近話變少', 離開: '離開了原本的學校，去走另一條路',
+    輕傷: '騎車上學出了車禍，擦傷了好幾處', 住院: '出車禍住院，班上同學去探望', 休學: '出了很嚴重的車禍，暫時休學在家',
+  }[kind];
+  return `📍 ${county.name}・${type}｜${name} ${ph}`;
+}
 export function stepPeers(st, data, tl) {
   const r = stateRng(st, 'peerS');
   const a = st.peers.a, idn = data.identities, events = data.life.events;
@@ -79,6 +95,12 @@ export function stepPeers(st, data, tl) {
   const days = tl.vacation ? 0 : COMMUTE_DAYS_PER_TURN;
   const yearIdx = tl.year - 1;
   const pc = st.peerCounts;
+  st.peerFeed ??= []; // 舊存檔沒有
+  const feed = (i, kind) => {
+    if (r() >= FEED_P) return;
+    st.peerFeed.push({ turn: st.turn, text: peerPhrase(st, idn, i, kind) });
+    if (st.peerFeed.length > FEED_MAX) st.peerFeed.shift();
+  };
   for (let i = 0; i < N_PEERS; i++) {
     const o = i * F;
     let s = a[o + 7];
@@ -92,7 +114,7 @@ export function stepPeers(st, data, tl) {
     // 中輟／轉換跑道
     if (r() < pDrop) {
       a[o + 7] = ST.離開; pc.離開++;
-      note('你的{rel}{n}離開了原本的學校，聽說去走另一條路了。');
+      note('你的{rel}{n}離開了原本的學校，聽說去走另一條路了。'); if (!kn) feed(i, '離開');
       continue;
     }
     // 習慣小幅漂移
@@ -103,11 +125,11 @@ export function stepPeers(st, data, tl) {
     else if (r() < 0.02) a[o + 3] = 0;
     // 打工：寒暑假較容易開始
     const pWork = (tl.vacation ? 0.08 : 0.008) * (a[o] === 2 ? 2 : 1);
-    if (!a[o + 4]) { if (r() < pWork) { a[o + 4] = 1; note('你的{rel}{n}找了一份打工，說想自己賺零用錢。'); } }
+    if (!a[o + 4]) { if (r() < pWork) { a[o + 4] = 1; note('你的{rel}{n}找了一份打工，說想自己賺零用錢。'); if (!kn) feed(i, '打工'); } }
     else if (r() < (tl.vacation ? 0.03 : 0.1)) a[o + 4] = 0;
     // 交往
-    if (!a[o + 5]) { if (r() < 0.018 + 0.006 * yearIdx) { a[o + 5] = 1; note('你的{rel}{n}交往了，最近都笑得很開心。'); } }
-    else if (r() < 0.05) { a[o + 5] = 0; note('你的{rel}{n}和對象分手了，最近有點低落。'); }
+    if (!a[o + 5]) { if (r() < 0.018 + 0.006 * yearIdx) { a[o + 5] = 1; note('你的{rel}{n}交往了，最近都笑得很開心。'); if (!kn) feed(i, '交往'); } }
+    else if (r() < 0.05) { a[o + 5] = 0; note('你的{rel}{n}和對象分手了，最近有點低落。'); if (!kn) feed(i, '分手'); }
     // 知心的朋友：慢慢漂
     if (r() < 0.06) a[o + 6] = Math.max(0, Math.min(5, a[o + 6] + (r() < 0.5 ? -1 : 1)));
     // 人生事件骰
@@ -119,10 +141,10 @@ export function stepPeers(st, data, tl) {
         if (r() < turnProb(yearProb(ev, g), days)) {
           const sev = rollSeverity(ev, r());
           if (ev.id === 'unlicensed_penalty') { pc.罰單++; note('你的{rel}{n}無照騎車被警察攔下來開罰，被家人唸了一頓。'); continue; }
-          if (sev === '死亡') { a[o + 7] = ST.死亡; pc.死亡++; note('你聽說{rel}{n}因為一場車禍離開了。'); break; }
-          if (sev === '輕傷') { pc.受傷++; note('你的{rel}{n}騎車出了點小事故，擦傷貼了紗布。'); }
-          else if (sev === '住院') { pc.受傷++; note('你的{rel}{n}出車禍住院了，大家想去探望。'); }
-          else { pc.受傷++; a[o + 7] = ST.休學; note('你的{rel}{n}出了很嚴重的車禍，暫時休學在家休養。'); break; }
+          if (sev === '死亡') { a[o + 7] = ST.死亡; pc.死亡++; note('你聽說{rel}{n}因為一場車禍離開了。'); if (!kn) feed(i, '死亡'); break; }
+          if (sev === '輕傷') { pc.受傷++; note('你的{rel}{n}騎車出了點小事故，擦傷貼了紗布。'); if (!kn) feed(i, '輕傷'); }
+          else if (sev === '住院') { pc.受傷++; note('你的{rel}{n}出車禍住院了，大家想去探望。'); if (!kn) feed(i, '住院'); }
+          else { pc.受傷++; a[o + 7] = ST.休學; note('你的{rel}{n}出了很嚴重的車禍，暫時休學在家休養。'); if (!kn) feed(i, '休學'); break; }
         }
       }
     }

@@ -62,7 +62,11 @@ export function semesterReport(st, data, tl) {
   const cramShare = (pc.補習 + (st.habits.補習 > 0 ? 1 : 0)) / (pc.在學 + 1);
   const inClass = Math.round(35 * cramShare);
   const schoolLine = `${school.flavor}全班 35 人裡，大約有 ${inClass} 人放學後去補習；${st.habits.補習 > 0 ? '你也是其中一個。' : '你不在其中。'}`;
-  const answer = Math.round((pc.補習或打工總 / n) * 100);
+  // 猜題一次只問一件事：補習和打工輪流
+  const askCram = (st.quiz.length % 2) === 0;
+  const cramN = pc.補習 + (st.habits.補習 > 0 ? 1 : 0), workN = pc.打工 + (st.flags.打工中 ? 1 : 0);
+  const answer = Math.round(((askCram ? cramN : workN) / n) * 100);
+  const quizTopic = askCram ? '補習' : '打工';
   const snap = st.peerSnap, pcu = st.peerCounts;
   const injured = pcu.受傷 - snap.受傷;
   const left = pcu.離開 - snap.離開;
@@ -79,7 +83,7 @@ export function semesterReport(st, data, tl) {
   return {
     title: `${GRADE[tl.year - 1]}${tl.seg}`,
     phrases, schoolLine, peerLines, commuteLine,
-    quiz: { question: '你覺得，跟你同屆的這 1,000 人裡，有多少 % 的人現在在補習或打工？', answer },
+    quiz: { topic: quizTopic, question: `猜猜看：同屆有多少 % 的人在${quizTopic}？`, answer },
     peerHead: '這學期，跟你同屆的 1,000 人裡：',
   };
 }

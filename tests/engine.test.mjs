@@ -348,11 +348,18 @@ test('錢包：低錢包時風險卡權重上升、誘惑卡被擋；高錢包�
     assert.ok(weight(id, 4000) > weight(id, 2000) && weight(id, 2000) > 0, id);
   }
   assert.ok(weight('haohao_treat', 100) >= weight('haohao_treat', 3000));
-  // 有 cost 的社交選項在錢包不夠時被灰掉
+  // 社交邀約錢不夠時：可以先請同學墊（欠人情）；非社交的花費則直接灰掉
   st.stats.錢包 = 100;
   const ctx = buildCtx(st, tl);
   const view = describeCard(data.cardIndex.karaoke_invite, st, ctx);
-  assert.ok(view.choices[0].disabled && view.choices[0].reason === '錢包不夠');
+  assert.ok(!view.choices[0].disabled && view.choices[0].owe === 200);
+  const camp = describeCard(data.cardIndex.teacher_camp, st, ctx);
+  assert.ok(camp.choices[0].disabled);
+  const st2 = newState(5, data); st2.stats.錢包 = 100;
+  applyChoice(st2, data, data.cardIndex.karaoke_invite, 0, buildCtx(st2, tl), stateRng(st2), 4);
+  assert.equal(st2.stats.錢包, 0);
+  assert.equal(st2.debt, 200);
+  assert.ok(st2.delayed.some((d) => d.event === 'debt_favor'));
   // 錢包低迷時心情每回合 −1
   const a = newState(9, data), b = newState(9, data);
   a.stats.錢包 = 0; b.stats.錢包 = 5000; a.habits.手機 = 0; b.habits.手機 = 0;
@@ -408,7 +415,12 @@ test('零用錢：投資報酬可重現、帳戶不為負；存下／投資讓�
     const bal = [];
     while (!st.ended && !st.dead) {
       const res = startTurn(st, data);
-      if (res.card) chooseCard(st, data, res.card.choices.find((c) => !c.disabled).i);
+      if (res.card) {
+        // 這個測試只看投資帳戶本身：避開會改變零用錢用途的選項
+        const raw = data.cardIndex[res.card.id].choices;
+        const pick = res.card.choices.find((c) => !c.disabled && !(raw[c.i].setHabits && raw[c.i].setHabits.零用錢)) || res.card.choices.find((c) => !c.disabled);
+        chooseCard(st, data, pick.i);
+      }
       finishTurn(st, data);
       bal.push(st.stats.投資);
       assert.ok(st.stats.投資 >= 0 && st.stats.錢包 >= 0 && st.stats.投資本金 >= 0);

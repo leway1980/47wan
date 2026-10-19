@@ -28,6 +28,8 @@ export function rollSchool(r, idn, county) {
   return pickWeighted(r, idn.schools, (s) => s.w[county.tier]);
 }
 
+export const SUBJECTS = ['國文', '英文', '數學', '自然', '社會'];
+
 export function generateIdentity(seed, idn) {
   const r = mulberry32((seed ^ 0x51ed270b) >>> 0);
   const surname = pickWeighted(r, idn.surnames.map((n, k) => ({ n, w: idn.surnameW[k] })), (x) => x.w).n;
@@ -55,6 +57,13 @@ export function generateIdentity(seed, idn) {
   const W = { 高期待: [6, 3.5, 0.5], 支持: [2.5, 5.5, 2], 放任: [1, 3, 6], 自顧不暇: [0.5, 2.5, 7] }[style] || [2, 5, 3];
   const parentRule = ['嚴格', '普通', '不太管'][pickWeighted(ra, W.map((w, i) => ({ i, w })), (x) => x.w).i];
   const schoolKey = Object.keys(idn.uniforms).find((k) => school.startsWith(k)) || Object.keys(idn.uniforms)[0];
+  // 零用錢與各科天分：獨立亂數流，不影響其他抽籤
+  const rm = mulberry32((seed ^ 0x1f2e3d4c) >>> 0);
+  const ALLOW = { 寬裕: [1500, 4000], 小康: [600, 2000], 吃緊: [0, 700] }[fam.econ];
+  const noAllow = rm() < { 寬裕: 0.08, 小康: 0.15, 吃緊: 0.35 }[fam.econ]; // 沒有固定零用錢，要用時再跟家裡拿
+  const allowanceMonth = noAllow ? 0 : Math.round((ALLOW[0] + rm() * (ALLOW[1] - ALLOW[0])) / 100) * 100;
+  const aptitude = {};
+  for (const sub of SUBJECTS) aptitude[sub] = Math.round((rm() - 0.5) * 30); // −15～+15
   return {
     name: surname + given,
     sex,
@@ -78,6 +87,8 @@ export function generateIdentity(seed, idn) {
       parent,
     },
     parentRule,
+    allowanceMonth,
+    aptitude,
     commute,
     commuteOrig: commute,
     info: idn.infoBySupport[fam.support],
@@ -89,7 +100,7 @@ export function openingText(id, idn) {
   return [
     '你是 2026 年 8 月，全台 47 萬名高中、高職學生裡的一人。',
     `你叫${id.name}，座號 ${id.seat} 號，在${id.county}${id.district}的一所${id.schoolType}。你${idn.commutePhrase[id.commute]}。`,
-    `${id.family.jobDesc}，${econ}。`,
+    `${id.family.jobDesc}，${econ}。${id.allowanceMonth ? `每個月零用錢 ${id.allowanceMonth.toLocaleString('en-US')} 元。` : '家裡沒有固定給零用錢，要用時再開口。'}`,
     `這 47 萬人裡，和你一樣讀普通高中的大約有一半。`,
   ];
 }

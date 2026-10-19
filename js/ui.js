@@ -3,9 +3,38 @@ import { rngAt } from './engine/rng.js';
 import { visibleScore, focusPhrase } from './engine/state.js';
 import { formatDateLong } from './engine/report.js';
 import { avatarSVG } from './engine/avatar.js';
-import { shockView, parentLabel, tutorCap, tutorIsFree } from './engine/family.js';
+import { shockView, parentLabel, tutorCap, tutorIsFree, effectiveEcon } from './engine/family.js';
+
+// 粗估比例：「每 10 人有 4 人」比「1,000 人中 382 人」好讀
+const rough = (n) => {
+  const k = Math.round(Number(String(n).replace(/,/g, '')) / 100);
+  return k <= 0 ? '不到一成的人' : k >= 10 ? '幾乎每個人都' : `大約每 10 人有 ${k} 人`;
+};
+// 各科：最近一次段考，擅長的與不及格的
+function subjectLines(st) {
+  const ex = st.lastExam;
+  if (!ex) return [h('span', { class: 'pf-fam' }, '📝 還沒有段考成績')];
+  const subs = Object.entries(ex).sort((a, b) => b[1] - a[1]);
+  const good = subs.filter(([, v]) => v >= 75).slice(0, 2).map(([k]) => k);
+  const fail = subs.filter(([, v]) => v < 60).map(([k]) => k);
+  return [
+    h('span', { class: 'pf-fam' }, `⭐ 擅長：${good.length ? good.join('、') : `${subs[0][0]}（相對好一點）`}`),
+    h('span', { class: 'pf-fam' + (fail.length ? ' pf-warn' : '') }, fail.length ? `❗ 不及格：${fail.join('、')}` : '✅ 沒有不及格'),
+  ];
+}
+// 家境顯示目前實際的狀況：遇到失業、生意變差時，家境跟著降一級
+function famLine(st) {
+  const id = st.identity, now = effectiveEcon(st), sk = st.fam && st.fam.shock;
+  const econ = now === id.family.econ ? now : `${now}（原本${id.family.econ}）`;
+  const job = sk && sk.id === 'unemployed' ? `原本${id.family.job}` : id.family.job;
+  return `🏠 ${econ}・${parentLabel(st)}：${job}`;
+}
 
 const avHTML = (spec, opts) => avatarSVG(spec, opts);
+/** 淺色畫框：不論深淺主題都放在暖米色底上，深色頭髮才看得見。size: sm|md|lg|xl */
+export function portrait(size, svg, attrs = {}) {
+  return h('div', { class: `pframe pf-${size}` }, h('div', { class: 'av', ...attrs, html: svg || '' }));
+}
 const reduceMotion = () => { try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; } };
 
 export function h(tag, attrs, ...kids) {
@@ -61,7 +90,7 @@ export function renderIntro(root, { paras, tags, schoolLine, supportLine, seed, 
     h('main', { class: 'wrap', style: 'padding-top:28px;padding-bottom:40px' },
       h('div', { class: 'paper opening' },
         avatar && h('figure', { class: 'av-card' },
-          h('div', { class: 'av av-lg', 'data-av': 'intro', html: avHTML(avatar.spec, avatar.opts) }),
+          portrait('lg', avHTML(avatar.spec, avatar.opts), { 'data-av': 'intro' }),
           h('figcaption', { class: 'small muted' }, uniformCaption)),
         h('p', { class: 'big' }, paras[0]),
         paras.slice(1).map((t) => h('p', null, t)),
@@ -85,7 +114,7 @@ const GAME = ['不玩', '偶爾玩', '常常玩', '天天上線'];
 
 export function renderGame(root, { onSpeed, speed }) {
   const refs = {};
-  refs.avHeader = h('div', { class: 'av av-sm', 'aria-hidden': 'true' });
+  refs.speed = speed;
   refs.date = h('div', { class: 'date', id: 'date', 'aria-live': 'off' });
   refs.term = h('span', { class: 'term' });
   refs.date.append(h('span', { id: 'date-text' }), refs.term);
@@ -94,7 +123,9 @@ export function renderGame(root, { onSpeed, speed }) {
   refs.prog = h('i');
   refs.stats = h('div', { class: 'stats' });
   refs.habits = h('details', { class: 'habits', open: true });
+  refs.card = h('section', { class: 'charcard', 'aria-label': '角色' });
   refs.feed = h('ol', { class: 'feed', id: 'feed' });
+  refs.logQ = [];
   refs.modal = h('div', { id: 'modal-root' });
   root.replaceChildren(
     h('div', { class: 'topbar' },
@@ -102,10 +133,11 @@ export function renderGame(root, { onSpeed, speed }) {
       h('div', { class: 'progress', role: 'progressbar', 'aria-label': '三年進度' }, refs.prog),
     ),
     h('main', { class: 'wrap layout' },
+      h('div', { class: 'side' }, refs.card, refs.habits),
       refs.stats,
-      h('div', { class: 'feedbox' }, h('h2', { class: 'feed-head' }, '生活紀錄'), refs.feed),
-      refs.habits,
     ),
+    h('section', { class: 'dialog', 'aria-label': '生活紀錄' },
+      h('div', { class: 'wrap' }, h('div', { class: 'dlg-tab' }, '生活紀錄'), h('div', { class: 'dlg-box', tabindex: '0' }, refs.feed))),
     refs.modal,
   );
   return refs;
@@ -119,7 +151,6 @@ export function setAvatar(refs, spec, opts) {
 function paintAvatar(refs) {
   if (!refs.av) return;
   const html = avHTML(refs.av.spec, { ...refs.av.opts, frame: refs.av.frame });
-  refs.avHeader.innerHTML = html;
   if (refs.avPanel) refs.avPanel.innerHTML = html;
 }
 export function setAvatarAnim(refs, on) {
@@ -131,6 +162,7 @@ export function setAvatarAnim(refs, on) {
 }
 
 export function setSpeedButtons(refs, speed) {
+  refs.speed = speed;
   for (const b of refs.speedBtns) b.setAttribute('aria-pressed', String(+b.dataset.speed === speed));
 }
 
@@ -155,7 +187,7 @@ export function updateStats(refs, st) {
     h('div', { class: 'stat', 'data-stat': '知心' }, h('div', { class: 'k' }, '知心'), h('div', { class: 'v hearts', 'aria-label': `${hearts} 顆心` }, '♥'.repeat(hearts) + '♡'.repeat(5 - hearts))),
     h('div', { class: 'stat', 'data-stat': '心情' }, h('div', { class: 'k' }, '心情'), h('div', { class: 'v' }, moodWord(S.心情)), bar(S.心情)),
     h('div', { class: 'stat', 'data-stat': '錢包' }, h('div', { class: 'k' }, '錢包'), h('div', { class: 'v' }, 'NT$ ' + Math.round(S.錢包).toLocaleString('en-US'))),
-    h('div', { class: 'stat wide', 'data-stat': '專注' }, h('div', { class: 'k' }, '最近的狀態'), h('div', { class: 'v', style: 'font-size:16px' }, `「${focusPhrase(S.專注)}」`)),
+    h('div', { class: 'stat wide', 'data-stat': '專注' }, h('div', { class: 'k' }, '最近的狀態'), h('div', { class: 'v sm' }, `「${focusPhrase(S.專注)}」`)),
   );
 }
 
@@ -176,109 +208,108 @@ const TUTOR = ['不補習', '補 1 科', '補 2 科', '補 3 科'];
 const derived = (phone) => ({ 睡前手機: phone >= 3, 遊戲: Math.max(0, phone - 2) });
 
 /**
- * 輕量習慣面板：只用點的。手機／補習／運動是圓點（點圓點＝設定，點標籤＝下一階）；
- * 寫作業是三顆小籤。「細節」裡有睡前手機、手遊、上課；沒碰過就由手機等級推得，碰過就記住，「自動」可還原。
- * ctx.afford(n) -> { ok, need }：補習負擔不起的階層會變暗，點了只顯示原因。
+ * 「目前的你」：唯讀的習慣狀態面板。習慣只會因事件選擇而改變，這裡不接受任何點選設定。
+ * 重畫時和上次比對，變動的那一列會短暫發光，讓玩家看見因果。
+ * （onChange / ctx 參數保留只為相容呼叫端，不再使用。）
  */
-export function renderHabits(refs, st, onChange, ctx = {}) {
+export function renderHabits(refs, st) {
   const H = st.habits;
-  if (!st.uiAuto) st.uiAuto = { 睡前: true, 遊戲: true };
-  const A = st.uiAuto;
-  const open = refs.habits.dataset.sub === '1';
-  const hints = {};
-  const hintEl = (k) => (hints[k] = h('span', { class: 'hp-hint', 'data-hint': k }));
-  const say = (k, t) => { hints[k].textContent = t; };
-
-  const dots = (key, n, value, set, labels, blocked) => h('span', { class: 'dots', role: 'group', 'aria-label': key },
-    Array.from({ length: n }, (_, i) => {
-      const b = blocked ? blocked(i) : null;
-      return h('button', {
-        class: 'dot' + (i <= value && value > 0 ? ' on' : '') + (b ? ' off' : ''), type: 'button', 'data-dot': i + 1,
-        'aria-label': `${key} ${i + 1} 階：${labels[i + 1]}`, 'aria-pressed': String(i + 1 === value), 'aria-disabled': b ? 'true' : null,
-        onClick: () => { if (b) { say(key, b); return; } set(value === i + 1 ? i : i + 1); },
-      }, h('i'));
-    }));
-  const levelRow = (key, label, n, value, labels, set, blocked, extra) => {
-    const hint = hintEl(key);
-    say(key, labels[value]);
-    const cycle = () => {
-      for (let t = 1; t <= n + 1; t++) {
-        const nv = (value + t) % (n + 1);
-        if (!(blocked && nv > 0 && blocked(nv - 1))) { set(nv); return; }
-      }
-    };
-    return h('div', { class: 'hp-row', 'data-row': key },
-      h('button', { class: 'hp-label', type: 'button', onClick: cycle, 'aria-label': `${label}：下一階` }, h('span', { class: 'ic' }, ICON[key]), label),
-      dots(key, n, value, set, labels, blocked),
-      h('span', { class: 'br' }), hint, extra);
+  const cur = {
+    手機: H.手機, 補習: H.補習, 運動: H.運動, 作業: H.作業, 零用錢: H.零用錢 || '花掉',
+    睡前手機: !!H.睡前手機, 遊戲: H.遊戲, 課堂: H.課堂,
   };
-  const chips = (key, opts, value, set) => h('span', { class: 'chips-row', role: 'group', 'aria-label': key },
-    opts.map((o) => h('button', { class: 'cp' + (o.v === value ? ' on' : ''), type: 'button', 'aria-pressed': String(o.v === value), 'data-v': o.v, onClick: () => set(o.v) }, o.t)));
+  const prev = refs.prevHabits;
+  refs.prevHabits = cur;
+  const changed = (...keys) => !!prev && keys.some((k) => prev[k] !== cur[k]);
+  const row = (key, keys, ...kids) => h('div', { class: 'hp-row' + (changed(...keys) ? ' flash' : ''), 'data-row': key }, ...kids);
+  const label = (ic, t) => h('span', { class: 'hp-label' }, h('span', { class: 'ic', 'aria-hidden': 'true' }, ic), t);
+  const dots = (n, value) => h('span', { class: 'dots', 'aria-hidden': 'true' },
+    Array.from({ length: n }, (_, i) => h('span', { class: 'dot' + (i < value ? ' on' : '') }, h('i'))));
+  const level = (key, label_, n, value, labels) => row(key, [key],
+    label(ICON[key], label_), dots(n, value), h('span', { class: 'br' }), h('span', { class: 'hp-hint', 'data-hint': key }, labels[value]));
+  const chip = (t) => h('span', { class: 'cp on' }, t);
+  const pick = (key, ic, t, value) => row(key, [key], label(ic, t), h('span', { class: 'chips-row' }, chip(value)));
 
-  const setPhone = (v) => {
-    onChange('手機', v);
-    const d = derived(v);
-    if (A.睡前) onChange('睡前手機', d.睡前手機);
-    if (A.遊戲) onChange('遊戲', d.遊戲);
-    redraw();
-  };
-  const sub = open ? h('div', { class: 'hp-sub' },
-    h('div', { class: 'hp-row' },
-      h('span', { class: 'hp-label static' }, h('span', { class: 'ic' }, ICON.睡前), '手機過夜'),
-      chips('手機過夜', [{ v: true, t: '帶進房間' }, { v: false, t: '放客廳充電' }], !!H.睡前手機, (v) => { A.睡前 = false; onChange('睡前手機', v); redraw(); }),
-      h('button', { class: 'cp auto' + (A.睡前 ? ' on' : ''), type: 'button', onClick: () => { A.睡前 = true; onChange('睡前手機', derived(H.手機).睡前手機); redraw(); } }, '自動')),
-    h('div', { class: 'hp-row' },
-      h('button', { class: 'hp-label', type: 'button', onClick: () => { A.遊戲 = false; onChange('遊戲', (H.遊戲 + 1) % 4); redraw(); } }, h('span', { class: 'ic' }, ICON.手遊), '手遊'),
-      dots('手遊', 3, H.遊戲, (v) => { A.遊戲 = false; onChange('遊戲', v); redraw(); }, GAME),
-      h('button', { class: 'cp auto' + (A.遊戲 ? ' on' : ''), type: 'button', onClick: () => { A.遊戲 = true; onChange('遊戲', derived(H.手機).遊戲); redraw(); } }, '自動'),
-      hintEl('手遊')),
-    h('div', { class: 'hp-row' }, h('span', { class: 'hp-label static' }, h('span', { class: 'ic' }, ICON.上課), '上課'),
-      chips('上課', CLASS_CHIPS, H.課堂, (v) => { onChange('課堂', v); redraw(); })),
-  ) : null;
-  if (sub) say('手遊', GAME[H.遊戲]);
-
-  // 補習由家裡出錢：超過家裡負擔上限的階層變暗；上限 0 時第 1 階是免費的學校課輔
-  const cap = tutorCap(st), free = tutorIsFree(st);
-  const tutorBlocked = (i) => ((free ? i + 1 > 1 : i + 1 > cap) ? '一科一個月約 3,000 元，家裡目前負擔不起' : null);
+  const free = tutorIsFree(st);
   const tutorLabels = free ? ['不補習', '學校課輔（免費）', '', ''] : TUTOR;
+  const sub = h('details', { class: 'hp-more' },
+    h('summary', { class: 'cp detail' }, '細節'),
+    h('div', { class: 'hp-sub' },
+      pick('睡前手機', ICON.睡前, '手機過夜', cur.睡前手機 ? '帶進房間' : '放客廳充電'),
+      level('遊戲', '手遊', 3, H.遊戲, GAME),
+      pick('課堂', ICON.上課, '上課', H.課堂)));
+  if (refs.habits.dataset.sub === '1') sub.open = true;
+  sub.addEventListener('toggle', () => { refs.habits.dataset.sub = sub.open ? '1' : '0'; });
   const body = h('div', { class: 'hp-main' },
-    levelRow('手機', '手機', 4, H.手機, PHONE, setPhone, null,
-      h('button', { class: 'cp detail', type: 'button', 'aria-expanded': String(open), onClick: () => { refs.habits.dataset.sub = open ? '0' : '1'; redraw(); } }, (open ? '▾' : '▸') + ' 細節')),
+    level('手機', '手機', 4, H.手機, PHONE),
+    level('補習', '補習', 3, H.補習, tutorLabels),
+    level('運動', '運動', 2, H.運動, SPORT),
+    pick('零用錢', '💰', '零用錢', cur.零用錢),
+    pick('作業', ICON.寫作業, '寫作業', H.作業),
     sub,
-    levelRow('補習', '補習', 3, H.補習, tutorLabels, (v) => { onChange('補習', v); redraw(); }, tutorBlocked),
-    levelRow('運動', '運動', 2, H.運動, SPORT, (v) => { onChange('運動', v); redraw(); }),
-    h('div', { class: 'hp-row', 'data-row': '零用錢' }, h('span', { class: 'hp-label static' }, h('span', { class: 'ic' }, '💰'), '零用錢'),
-      chips('零用錢', ['花掉', '存下', '投資'].map((v) => ({ v, t: v })), H.零用錢 || '花掉', (v) => { onChange('零用錢', v); redraw(); })),
-    h('div', { class: 'hp-row', 'data-row': '作業' }, h('span', { class: 'hp-label static' }, h('span', { class: 'ic' }, ICON.寫作業), '寫作業'),
-      chips('寫作業', HW_CHIPS, H.作業, (v) => { onChange('作業', v); redraw(); })),
   );
-  refs.avPanel = h('div', { class: 'av av-md', 'aria-hidden': 'true' });
+  refs.avPanel = h('div', { class: 'av', 'aria-hidden': 'true' });
   const id = st.identity, badge = stateBadge(st), shock = shockView(st);
   refs.profTerm = h('span', { class: 'pf-term' }, refs.termText || '');
-  const strip = h('summary', { class: 'profile' },
-    refs.avPanel,
-    h('span', { class: 'pf-col' },
+  const card = [
+    h('div', { class: 'pframe pf-lg' }, refs.avPanel),
+    h('div', { class: 'pf-col' },
+      h('span', { class: 'pf-badge', 'data-badge': badge.t }, h('span', { 'aria-hidden': 'true' }, badge.i), badge.t),
       h('span', { class: 'pf-name' }, `${id.name}・${id.seat}號`),
       refs.profTerm,
-      h('span', { class: 'pf-school' }, id.school),
-      h('span', { class: 'pf-fam' }, `🏠 ${id.family.econ}・${parentLabel(st)}：${id.family.job}`),
+      h('span', { class: 'pf-school' }, `📍 ${id.county}${id.district}・${id.school}`),
+      h('span', { class: 'pf-fam' }, `🚌 通勤：${id.commute}`),
+      h('span', { class: 'pf-fam' }, famLine(st)),
+      h('span', { class: 'pf-fam' }, id.allowanceMonth ? `💵 零用錢：每月 ${id.allowanceMonth.toLocaleString('en-US')} 元` : '💵 沒有固定零用錢'),
+      h('span', { class: 'pf-fam' }, `📘 學群：${st.flags.自然學群 ? '自然學群' : st.flags.文法商學群 ? '文法商學群' : '還沒選（高一下選）'}`),
+      ...subjectLines(st),
       (st.stats.投資本金 || 0) > 0 && h('span', { class: 'pf-fam', 'data-invest': '1' }, `📈 投資 ${Math.round(st.stats.投資).toLocaleString('en-US')} 元（${st.stats.投資 >= st.stats.投資本金 ? '+' : ''}${Math.round((st.stats.投資 / st.stats.投資本金 - 1) * 100)}%）`),
       st.rule && st.turn < st.rule.until && st.rule.label && h('span', { class: 'pf-fam', 'data-rule': '1' }, `📵 家規：${st.rule.label}`),
       shock && h('span', { class: 'pf-shock ' + (shock.sign < 0 ? 'neg' : 'pos'), title: shock.desc, 'data-shock': shock.label }, `${shock.icon} ${shock.label}`)),
-    h('span', { class: 'pf-badge', 'data-badge': badge.t }, h('span', { 'aria-hidden': 'true' }, badge.i), badge.t),
-    h('span', { class: 'pf-chev', 'aria-hidden': 'true' }, '▾'));
-  const redraw = () => { renderHabits(refs, st, onChange, ctx); if (ctx.onAfter) ctx.onAfter(); };
+  ];
+  const strip = h('summary', { class: 'profile' }, h('span', null, '目前的你'), h('span', { class: 'pf-chev', 'aria-hidden': 'true' }, '▾'));
+  refs.card.replaceChildren(...card);
   refs.habits.replaceChildren(
     strip,
-    h('div', { class: 'hp' }, h('div', { class: 'hp-col' }, body, h('p', { class: 'hp-note small muted' }, '之後每兩週都照這樣過，想改再點。'))),
+    h('div', { class: 'hp' }, h('div', { class: 'hp-col' }, body, h('p', { class: 'hp-note small muted' }, '這些習慣會隨著你在事件裡的選擇慢慢改變。'))),
   );
   paintAvatar(refs);
 }
 
+/* 生活紀錄：RPG 對話框。新行從底部滑入，最新一行逐字顯示；4× 或減少動態時直接顯示。 */
+const CHAR_MS = 20;
 export function appendLog(refs, ms, text, cls = '') {
-  const li = h('li', { class: cls }, ms != null && h('time', null, shortDate(ms)), text);
-  refs.feed.prepend(li);
-  while (refs.feed.children.length > 80) refs.feed.lastChild.remove();
+  refs.logQ.push({ ms, text, cls });
+  if (!refs.logBusy) pumpLog(refs);
+}
+function pumpLog(refs) {
+  const item = refs.logQ.shift();
+  if (!item) { refs.logBusy = false; return; }
+  refs.logBusy = true;
+  const box = refs.feed.parentElement;
+  const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  for (const old of refs.feed.querySelectorAll('li.new')) old.classList.remove('new');
+  const body = h('span', { class: 'tx' });
+  const li = h('li', { class: `new ${item.cls}`.trim() }, item.ms != null && h('time', null, shortDate(item.ms)), body);
+  refs.feed.append(li);
+  while (refs.feed.children.length > 80) refs.feed.firstChild.remove();
+  if (stick) box.scrollTop = box.scrollHeight;
+  const instant = refs.speed === 4 || reduceMotion() || refs.logQ.length > 2;
+  if (instant) { body.textContent = item.text; if (stick) box.scrollTop = box.scrollHeight; pumpLog(refs); return; }
+  // 先用不可見字佔位，避免逐字顯示時換行位置跳動
+  const chars = [...item.text];
+  const shown = h('span'), rest = h('span', { class: 'ghost' }, item.text);
+  body.append(shown, rest);
+  let n = 0;
+  const step = () => {
+    n++;
+    shown.textContent = chars.slice(0, n).join('');
+    rest.textContent = chars.slice(n).join('');
+    if (stick) box.scrollTop = box.scrollHeight;
+    if (n >= chars.length || refs.speed === 4) { shown.textContent = item.text; rest.textContent = ''; pumpLog(refs); }
+    else setTimeout(step, CHAR_MS);
+  };
+  setTimeout(step, CHAR_MS);
 }
 
 /* ───────────── 對話框 ───────────── */
@@ -343,8 +374,8 @@ export function showReport(refs, rp, { onGuess, onNext, guessed, st, avatar }) {
   const cram = num(/^([\d,]+) 人在補習/m), phoneHeavy = num(/^([\d,]+) 人手機/m);
   const days = (rp.commuteLine.match(/(\d+) 天/) || [])[1], pct = (rp.commuteLine.match(/機率(?:大約|約) ?([\d.]+%)/) || [])[1];
   const facts = [
-    cram && `👥 1,000 人中 ${cram} 人在補習${st.habits.補習 > 0 ? '（你也是）' : ''}`,
-    phoneHeavy && `📱 ${phoneHeavy} 人手機「一有空就滑」以上`,
+    cram && `👥 同屆${rough(cram)}在補習${st.habits.補習 > 0 ? '（你也是）' : ''}`,
+    phoneHeavy && `📱 ${rough(phoneHeavy)}手機「一有空就滑」`,
     days && pct && ['腳踏車', '微電車', '無照騎機車'].includes(st.identity.commute) && `${st.identity.commute === '腳踏車' ? '🚲' : '🛵'} 你騎車上學 ${days} 天，一年發生事故的機率約 ${pct}`,
   ].filter(Boolean);
   const out = h('p', { class: 'rq-out', 'data-out': '1', 'aria-live': 'polite' });
@@ -360,11 +391,11 @@ export function showReport(refs, rp, { onGuess, onNext, guessed, st, avatar }) {
   });
   if (guessed != null) { shown = true; reveal(guessed); input.value = String(guessed); input.disabled = true; btn.textContent = '繼續'; }
   overlay(refs,
-    h('div', { class: 'rp-head' }, h('div', { class: 'av av-sm', html: avatar ? avHTML(avatar.spec, avatar.opts) : '' }),
+    h('div', { class: 'rp-head' }, portrait('sm', avatar ? avHTML(avatar.spec, avatar.opts) : ''),
       h('div', null, h('div', { class: 'eyebrow' }, '學期報告'), h('h2', null, `${rp.title}結束了`))),
     h('div', { class: 'tiles' }, tiles.map(([ic, k, v]) => h('div', { class: 'tile' }, h('span', { class: 'ic', 'aria-hidden': 'true' }, ic), h('span', { class: 'tk' }, k), h('span', { class: 'tv' }, v)))),
     h('ul', { class: 'facts' }, facts.map((t) => h('li', null, t))),
-    h('div', { class: 'rq' }, h('p', { class: 'small muted' }, `猜猜看：同屆有多少 % 的人在補習或打工？`), input, out),
+    h('div', { class: 'rq' }, h('p', { class: 'small muted' }, rp.quiz.question), input, out),
     btn,
   );
   btn.focus({ preventScroll: true });
@@ -372,7 +403,7 @@ export function showReport(refs, rp, { onGuess, onNext, guessed, st, avatar }) {
 
 /* ───────────── 終局 ───────────── */
 export function renderEnding(root, e, { onSame, onNew, seed, avatar }) {
-  const av = avatar ? h('div', { class: 'av av-xl', 'data-av': 'ending', html: avHTML(avatar.spec, avatar.opts) }) : null;
+  const av = avatar ? portrait('xl', avHTML(avatar.spec, avatar.opts), { 'data-av': 'ending' }) : null;
   const btns = h('div', { class: 'btns' },
     h('button', { class: 'btn primary block', 'data-act': 'same', onClick: onSame }, '同一個人生再來一次'),
     h('button', { class: 'btn block', 'data-act': 'new-life', onClick: onNew }, '換一個人生'),

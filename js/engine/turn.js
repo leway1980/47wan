@@ -1,4 +1,5 @@
 // 回合引擎：習慣 → 固定劇情 → 延遲佇列 → 人生事件 → 抽卡 → 選擇 → 同儕 → 紀錄。純函式、無 DOM。
+import { SUBJECTS } from './identity.js';
 import { mulberry32, stateRng, rngAt, gauss, pickWeighted, clamp } from './rng.js';
 import { tutorMaxLevel, tutorIsFree, famStep } from './family.js';
 import { buildCtx, drawCard, describeCard, applyChoice, applyEffects, cardById, evalCond, compile, passes } from './events.js';
@@ -64,10 +65,13 @@ const PHONE_FOCUS = [0, 0, 2, 5, 9];
 const PHONE_HAPPY = [-0.5, 0.3, 0.3, -0.2, -0.6];
 const COVER = { 自己就是資源: 0.4, 花錢買資源: 0.7, 自己找資源: 0 };
 
+const IG_LINES = ['你的限動被 23 個人看過，有 2 個人回覆。', '有人在限動 tag 你，你想了一下要怎麼回。', '同學私訊你：「在嗎？」你回完已經過了半小時。', '你滑了別人的出遊限動十分鐘。', '群組裡有人問你怎麼都沒回限動。', '有人按了你半年前的貼文愛心，你有點在意。', '你看到同學一起去吃飯的限動，你不在裡面。', '新追蹤你的人說是隔壁班的，你回追了。'];
 const GAME_LINES = ['每日任務還沒解完，你先上線點一下。', '限時活動只剩三天，你又打開了遊戲。', '公會戰今晚八點，你一直看時間。', '登入送十抽，你捨不得不領。', '體力條滿了，你找理由再上去一下。', '朋友說副本差一個人，你的手已經在滑。'];
 export function applyHabits(st, data, tl, r) {
   // 家規期間手機等級被壓住，但不改玩家自己的設定；期滿後自動恢復
   const H = st.habits, own = H.手機;
+  // 手機帶進房間：沒有事件特別決定過，就跟著手機用量走（用很多的人通常會帶進房間）
+  if (!st.flags.睡前定了) H.睡前手機 = H.手機 >= 3;
   if (st.rule && st.turn < st.rule.until) H.手機 = Math.min(own, st.rule.cap);
   try { return applyHabitsInner(st, data, tl, r); } finally { H.手機 = own; }
 }
@@ -77,7 +81,8 @@ function applyHabitsInner(st, data, tl, r) {
   const lines = [];
   /* 錢 */
   const econ = idn.econStart[fam.econ];
-  const income = econ.allowance * len * (vac ? 0.8 : 1) + (st.flags.打工中 ? (vac ? 1800 : 900) : 0);
+  const allowance = id.allowanceMonth ?? econ.allowance * 2; // 舊存檔沒有這個欄位
+  const income = (allowance / 2) * len * (vac ? 0.8 : 1) + (st.flags.打工中 ? (vac ? 1800 : 900) : 0);
   const other = [0, 0, 80, 200][H.遊戲] * len + [0, 0, 0, 40, 80][H.手機] * len;
   const avail = S.錢包 + income;
   // 補習由家裡出錢（不從零用錢扣），科數受家境上限限制；上限 0 時只剩免費的學校課輔
@@ -181,6 +186,19 @@ function applyHabitsInner(st, data, tl, r) {
       S.心情 = clamp(S.心情 + 1, 0, 100);
     }
   }
+  /* IG：加了之後，每週都有訊息、限動和回覆的人情要應付 */
+  if (st.flags.IG) {
+    const igLv = st.flags.IG常用 ? 2 : 1;
+    for (let i = 0; i < 2; i++) {
+      const pick = rngAt(st.seed, st.turn, 'ig' + i);
+      lines.push(IG_LINES[Math.floor(pick * IG_LINES.length)]);
+      S.聯繫 = clamp(S.聯繫 + 0.4 * igLv, 0, 100);
+      S.專注 = clamp(S.專注 - 0.6 * igLv, 15, 100);
+      if (H.睡前手機) S.睡眠債 = clamp(S.睡眠債 + 0.08 * igLv, 0, 10);
+      // 看到別人過得很好：心情偶爾小降（比較）
+      if (rngAt(st.seed, st.turn, 'igcmp' + i) < 0.3) S.心情 = clamp(S.心情 - 1, 0, 100); else S.心情 = clamp(S.心情 + 0.5, 0, 100);
+    }
+  }
   return lines;
 }
 
@@ -188,8 +206,12 @@ function applyHabitsInner(st, data, tl, r) {
 function runFixed(st, data, tl, f, r, out) {
   const S = st.stats;
   if (f.kind === 'exam') {
-    const score = clamp(Math.round(S.理解 * 0.85 + S.假熟悉 * 0.6 - S.睡眠債 * 0.8 + gauss(r) * 5), 0, 100);
+    const score = clamp(Math.round(25 + S.理解 * 0.75 + S.假熟悉 * 0.6 - S.睡眠債 * 0.8 + gauss(r) * 5), 0, 100);
     st.examScores.push(score);
+    // 各科成績：整體程度 + 這個人的各科天分 + 這次的運氣
+    const apt = st.identity.aptitude || {};
+    st.lastExam = {};
+    for (const sub of SUBJECTS) st.lastExam[sub] = clamp(Math.round(score + (apt[sub] || 0) + gauss(r) * 6), 0, 100);
     S.心情 = clamp(S.心情 + clamp((score - 60) / 8, -5, 5), 0, 100);
     S.睡眠債 = clamp(S.睡眠債 + 0.3, 0, 10);
     out.lines.push({ d: 1, text: `${f.name}成績出來了：平均 ${score} 分。` });

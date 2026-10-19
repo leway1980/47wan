@@ -122,6 +122,7 @@ export function buildCtx(st, tl) {
     地區: id.tier, 職業: id.family.job, 風格: id.family.style,
     年級: tl ? tl.year : 1, 學期: tl ? (tl.seg === '上學期' ? 1 : tl.seg === '下學期' ? 2 : 0) : 1,
     回合: st.turn, 假期: tl ? !!tl.vacation : false, 考試週: examNow,
+    家裡狀況: (st.fam && st.fam.shock && st.fam.shock.id) || '',
   };
 }
 
@@ -197,22 +198,37 @@ export function choiceState(ch, st, ctx) {
   if (ch.grayIf) {
     for (const g of [].concat(ch.grayIf)) if (evalCond(g.if, ctx)) { disabled = true; reason = g.reason; break; }
   }
-  if (!disabled && ch.cost && st.stats.錢包 < ch.cost) { disabled = true; reason = '錢包不夠'; }
+  // 要花錢的選項（cost 或錢包減少）都要付得起；付不起就不能選
+  const need = ch.cost || Math.max(0, -((ch.effects && ch.effects.錢包) || 0));
+  if (!disabled && ch.repayDebt && st.stats.錢包 < (st.debt || 0)) { disabled = true; reason = `還差 NT$${Math.round((st.debt || 0) - st.stats.錢包)}`; }
+  let owe = 0;
+  if (!disabled && need && st.stats.錢包 < need) {
+    // 社交邀約可以先請同學墊（欠人情，之後會有後續）；其他花費付不起就不能選
+    if (ch.canOwe) owe = Math.round(need - st.stats.錢包);
+    else { disabled = true; reason = '錢包不夠'; }
+  }
   // 想存錢／投資時，花錢的社交選項要多留一倍的餘裕才肯花（不是硬擋，錢多就能付）
   if (!disabled && ch.cost && (st.habits.零用錢 || '花掉') !== '花掉' && st.stats.錢包 < ch.cost * 2) { disabled = true; reason = '想存錢'; }
-  return { disabled, reason };
+  return { disabled, reason, owe };
+}
+
+// 卡片文字可依狀況換版本：textIf 由上往下找第一個符合的條件
+export function pickText(card, ctx) {
+  for (const t of card.textIf || []) if (ctx && evalCond(t.if, ctx)) return t.text;
+  return card.text;
 }
 
 export function describeCard(card, st, ctx) {
   return {
-    id: card.id, title: card.title, text: fill(card.text, st),
+    id: card.id, title: card.title, text: fill(pickText(card, ctx), st),
     choices: card.choices.map((ch, i) => {
-      const { disabled, reason } = choiceState(ch, st, ctx);
+      const { disabled, reason, owe } = choiceState(ch, st, ctx);
       const chips = Object.entries(ch.effects || {}).filter(([, v]) => v !== 0).map(([k, v]) => ({ k, dir: v > 0 ? 1 : -1 }));
       if (ch.cost && !(ch.effects && ch.effects.錢包)) chips.push({ k: '錢包', dir: -1 });
       // 隱藏效果或延遲事件只露出「有後續」，不洩漏內容
-      if ((ch.hidden && Object.keys(ch.hidden).length) || (ch.delayed && ch.delayed.length)) chips.push({ k: '？後續', dir: 0 });
-      return { i, label: ch.label, note: ch.note || '', chips, disabled, reason };
+      if (owe || (ch.hidden && Object.keys(ch.hidden).length) || (ch.delayed && ch.delayed.length)) chips.push({ k: '？後續', dir: 0 });
+      const note = owe ? `錢包不夠，要先請同學墊 NT$${owe}（欠人情）` : ch.note || '';
+      return { i, label: ch.label, note, chips, disabled, reason, owe };
     }),
   };
 }
@@ -231,10 +247,19 @@ export function applyChoice(st, data, card, idx, ctx, r, turnNo) {
   if (ch.toInvest) { st.stats.投資 += ch.toInvest; st.stats.投資本金 += ch.toInvest; } // 錢已由 effects 的 錢包 扣除
   applyEffects(st, ch.effects);
   applyEffects(st, ch.hidden);
+  if (ch.repayDebt) { st.stats.錢包 -= st.debt || 0; st.debt = 0; }
+  if (ch.clearDebt) st.debt = 0;
+  if (gs.owe) {
+    // 先請同學墊：錢包歸零，欠下人情，幾回合後對方會來討
+    st.stats.錢包 = 0;
+    st.debt = (st.debt || 0) + gs.owe;
+    st.delayed.push({ event: 'debt_favor', due: turnNo + 2 + Math.floor(r() * 3) });
+  }
+  st.stats.錢包 = Math.max(0, st.stats.錢包);
   for (const f of ch.setFlags || []) st.flags[f] = true;
   for (const f of ch.clearFlags || []) delete st.flags[f];
   if (ch.setHabits) Object.assign(st.habits, ch.setHabits);
-  if (ch.addHabits) for (const [k, d] of Object.entries(ch.addHabits)) st.habits[k] = clamp(st.habits[k] + d, 0, k === '補習' ? 3 : 4);
+  if (ch.addHabits) for (const [k, d] of Object.entries(ch.addHabits)) st.habits[k] = clamp(st.habits[k] + d, 0, { 補習: 3, 遊戲: 3, 運動: 2 }[k] ?? 4);
   if (ch.setCommute) st.identity.commute = ch.setCommute;
   for (const d of ch.delayed || []) {
     const hit = r() < d.chance * (d.event === 'fam_scholarship' ? 0.8 + 0.4 * ((st.stats.親子 ?? 50) / 100) : 1);

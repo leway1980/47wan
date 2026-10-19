@@ -26,7 +26,7 @@ export function randomPolicy(st) {
     課堂: pick(pr, ['跟著上', '跟著上', '跟著上', '挑重點聽', '做自己的事', '放空', '補眠']),
   });
   return {
-    habits(s, tl) { if (s.turn === 0 || pr() < 0.08) Object.assign(s.habits, persona()); },
+    // 習慣不能直接設定，只能透過事件選擇改變（隨機選選項）
     choose(s, card) {
       const ok = card.choices.filter((c) => !c.disabled);
       return pick(pr, ok).i;

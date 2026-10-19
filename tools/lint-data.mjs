@@ -96,6 +96,9 @@ export function lintData(raw = loadRaw()) {
     const isFree = (ch) => !(ch.cost || ((ch.effects || {}).錢包 || 0) < 0) || ch.canOwe;
     if ((c.choices || []).length && !(c.choices || []).some((ch) => isFree(ch) && !ch.grayIf && !ch.repayDebt)) errors.push(`${W}：沒有任何「不用花錢、不會變灰」的選項，錢包見底時可能沒得選`);
     for (const ch of c.choices || []) {
+      // 文字寫明家裡出錢、而且沒有說「你自己出」：不該從玩家的錢包扣，也不該因錢包不夠變灰
+      const famPays = /(家裡請|家裡出|家裡付|我們出得起|補習費家裡出)/.test(`${ch.label || ''}｜${ch.result || ''}｜${ch.note || ''}`) && !/你自己出|自己那一份/.test(`${ch.label || ''}｜${ch.result || ''}｜${ch.note || ''}`);
+      if (famPays && (ch.cost || (ch.effects?.錢包 ?? 0) < 0)) errors.push(`${W}／${ch.label}：寫明家裡出錢，卻從玩家錢包扣或檢查錢包`);
       const WC = `${W}／${ch.label}`;
       checkTokens(ch.result, WC); checkTokens(ch.label, WC + '標籤', false); checkTokens(ch.note, WC + '備註', false);
       for (const part of ['effects', 'hidden']) {

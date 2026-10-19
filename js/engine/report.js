@@ -28,15 +28,20 @@ const DEPTS = {
   文法商學群: ['企業管理系', '法律系', '社會學系', '歷史系', '外國語文學系', '心理系'],
 };
 export function computeOutcome(st) {
-  const s = st.final ?? st.gsat ?? st.stats.理解;
+  // 升學結果 = 學測／申請表現（換算成段考的分數尺度）六成 + 三年段考平均四成
+  // 段考常常不及格的人，幾乎不可能上國立大學
+  const test = 25 + 0.75 * (st.final ?? st.gsat ?? st.stats.理解);
+  const ex = st.examScores && st.examScores.length ? st.examScores.reduce((a, b) => a + b, 0) / st.examScores.length : test;
+  const s = 0.6 * test + 0.4 * ex;
   const u = rngAt(st.seed, 99, 'final');
   const group = st.flags.自然學群 ? '自然學群' : st.flags.文法商學群 ? '文法商學群' : st.stats.理解 >= 50 ? '自然學群' : '文法商學群';
   const dept = DEPTS[group][Math.floor(rngAt(st.seed, 98, 'dept') * DEPTS[group].length)];
   let type;
-  if (s >= 57) type = '國立大學';
-  else if (s >= 44) type = u < 0.2 + ((s - 44) / 13) * 0.5 ? '國立大學' : '私立大學';
-  else if (s >= 30) type = u < 0.6 ? '私立大學' : '科技大學';
-  else type = u < 0.35 ? '重考一年' : '科技大學';
+  if (s >= 72) type = '國立大學';
+  else if (s >= 64) type = u < 0.15 + ((s - 64) / 8) * 0.55 ? '國立大學' : '私立大學';
+  else if (s >= 55) type = u < 0.7 ? '私立大學' : '科技大學';
+  else if (s >= 45) type = u < 0.15 ? '重考一年' : u < 0.4 ? '私立大學' : '科技大學';
+  else type = u < 0.4 ? '重考一年' : '科技大學';
   const retake = type === '重考一年';
   const text = retake ? '這次沒有上到想去的學校，你決定重考一年。' : `你錄取了${type}的${dept}。`;
   return { type, dept, group, retake, text, score: Math.round(s) };

@@ -1,0 +1,45 @@
+name: stats-health
+
+# 檢查統計伺服器：/snap 回得出 JSON、CORS 允許遊戲網站。只讀不寫，不會灌數字。
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'data/server.json'
+      - '.github/workflows/stats-health.yml'
+  schedule:
+    - cron: '17 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 讀取伺服器網址
+        id: url
+        run: |
+          U=$(node -e 'console.log((JSON.parse(require("fs").readFileSync("data/server.json","utf8")).url||"").trim())')
+          if [ -z "$U" ]; then echo "::notice::data/server.json 還沒有網址，略過"; fi
+          echo "url=$U" >> "$GITHUB_OUTPUT"
+      - name: 檢查 /snap 與 CORS
+        if: steps.url.outputs.url != ''
+        env:
+          U: ${{ steps.url.outputs.url }}
+        run: |
+          curl -sS -D headers.txt -o snap.json -H "Origin: https://leway1980.github.io" "$U/snap"
+          echo "--- headers"; cat headers.txt
+          echo "--- body"; cat snap.json; echo
+          grep -qi '^access-control-allow-origin: https://leway1980.github.io' headers.txt || { echo "::error::CORS 沒有允許遊戲網站"; exit 1; }
+          node -e 'const j=JSON.parse(require("fs").readFileSync("snap.json","utf8")); if(typeof j.graduated!=="number"||typeof j.studying!=="number") process.exit(1); console.log(`畢業 ${j.graduated}｜就讀中 ${j.studying}｜動態 ${(j.feed||[]).length} 則`)' || { echo "::error::/snap 回應格式不對"; exit 1; }
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -H "Origin: https://leway1980.github.io" --data '{"g":"zz","k":"start"}' "$U/e")
+          echo "無效事件的回應碼：$code（應為 400）"
+          [ "$code" = "400" ] || { echo "::error::伺服器沒有擋下無效事件"; exit 1; }
+      - name: 檢查網站上的 server.json
+        if: steps.url.outputs.url != ''
+        run: |
+          sleep 60
+          curl -sS https://leway1980.github.io/47wan/data/server.json

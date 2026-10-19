@@ -283,6 +283,6 @@ export function buildEnding(st, data) {
     ],
     good: txt.good, regret: txt.regret, curves, chosenDrawn: { chosen, drawn }, whatIf,
     reveal: `你的心情平均 ${mean(hs.map((h) => h.心情)).toFixed(0)}，真實幸福平均 ${mean(hs.map((h) => h.幸福)).toFixed(0)}。短期開心和長期過得好，不一定是同一條線。`,
-    footnote: '以上是模型推估的可能性，不是預言；睡眠、手機與專注的關係來自研究共識，但數字是設計假設。若現實中你覺得很累，可以撥 1925 安心專線（24 小時）。',
+    footnote: '以上是模型推估的可能性，不是預言；睡眠、手機與專注的關係來自研究共識，但數字是設計假設。',
   };
 }

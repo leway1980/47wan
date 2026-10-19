@@ -4,6 +4,7 @@ import { lifeProbTable, COMMUTE_DAYS_PER_TURN, DEATH_LINE } from './life.js';
 import { peerCounts } from './peers.js';
 import { focusPhrase } from './state.js';
 import { composeEnding } from './ending.js';
+import { buildConduct } from './conduct.js';
 
 const WD = ['日', '一', '二', '三', '四', '五', '六'];
 export function formatDate(ms) {
@@ -296,7 +297,7 @@ export function buildEnding(st, data) {
         chosen: changed ? [`把通勤方式從「${id.commuteOrig}」改成「${id.commute}」`] : [],
         drawn: [`出生在${id.county}${id.district}`, ...(!changed ? [`每天通勤的方式：${id.commuteOrig}`] : []), `${formatDate(tl.start)} 那一天`],
       },
-      autoLine: st.autoTurns > 0 ? `其中有 ${st.autoTurns} 回合是他自己過的，不是你選的。` : '', truth: `在台灣：${ev.display}`, curves, whatIf: '', payoffs: [], good: '', regret: '', turning: null, outcome: null,
+      autoLine: st.autoTurns > 0 ? `其中有 ${st.autoTurns} 回合是他自己過的，不是你選的。` : '', truth: `在台灣：${ev.display}`, semesters: st.semesters || [], conduct: [], curves, whatIf: '', payoffs: [], good: '', regret: '', turning: null, outcome: null,
     };
   }
   const o = st.outcome || computeOutcome(st, data);
@@ -309,6 +310,7 @@ export function buildEnding(st, data) {
       { age: '18 歲', text: txt.a18 + (st.flags.記_店長推薦 ? '便當店的店長說，畢業後隨時歡迎你回去上班。' : '') }, { age: '22 歲', text: ed.a22 },
       { age: '25 歲', text: ed.a25 }, { age: '30 歲', text: ed.a30 },
     ],
+    semesters: st.semesters || [], conduct: buildConduct(st, data),
     good: ed.good, regret: ed.regret, curves, chosenDrawn: { chosen, drawn }, whatIf, payoffs,
     autoLine: st.autoTurns > 0 ? `其中有 ${st.autoTurns} 回合是他自己過的，不是你選的。` : '',
     reveal: `你的心情平均 ${mean(hs.map((h) => h.心情)).toFixed(0)}，真實幸福平均 ${mean(hs.map((h) => h.幸福)).toFixed(0)}。短期開心和長期過得好，不一定是同一條線。`,

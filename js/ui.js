@@ -455,6 +455,30 @@ export function showReport(refs, rp, { onGuess, onNext, guessed, st, avatar }) {
 }
 
 /* ───────────── 終局 ───────────── */
+// 高中三年紀錄：寬螢幕是表格（六學期六欄），手機是一學期一張卡片
+const SEM_ROWS = [
+  ['段考平均', (m) => (m.exam == null ? '—' : String(m.exam))],
+  ['出缺勤', (m) => `遲到 ${m.遲到}・缺掃 ${m.缺掃}・缺交 ${m.缺交}${m.補交 ? `・補交 ${m.補交}` : ''}`],
+  ['社團', (m) => m.club],
+  ['獎懲', (m) => `嘉獎 ${m.嘉獎}・警告 ${m.警告}`],
+  ['活動與競賽', (m) => (m.activities && m.activities.length ? m.activities.join('、') : '—')],
+  ['這學期最重要的事', (m) => m.highlight],
+];
+function semesterSection(e) {
+  const sems = e.semesters || [];
+  if (!sems.length) return null;
+  return h('div', { class: 'paper', style: 'margin-top:14px', id: 'sem-record' },
+    h('h2', { style: 'font-size:18px;margin-bottom:8px' }, '高中三年紀錄'),
+    h('div', { class: 'semwrap' },
+      h('table', { class: 'semtab' },
+        h('thead', null, h('tr', null, h('th', null, ''), sems.map((m) => h('th', { scope: 'col' }, m.title)))),
+        h('tbody', null, SEM_ROWS.map(([lab, f]) => h('tr', null, h('th', { scope: 'row' }, lab), sems.map((m) => h('td', null, f(m))))))),
+      h('div', { class: 'semcards' }, sems.map((m) => h('div', { class: 'semcard' },
+        h('h4', null, m.title),
+        h('dl', null, SEM_ROWS.map(([lab, f]) => h('div', { class: 'semrow' }, h('dt', null, lab), h('dd', null, f(m))))))))),
+    e.conduct && e.conduct.length > 0 && h('div', { class: 'conduct' }, h('h3', null, '態度與人際'), h('p', null, e.conduct.join(''))));
+}
+
 export function renderEnding(root, e, { onSame, onNew, seed, avatar, away }) {
   const awayP = away && h('p', { class: 'small muted', 'data-away': '1' }, away);
   const av = avatar ? portrait('xl', avHTML(avatar.spec, avatar.opts), { 'data-av': 'ending' }) : null;
@@ -478,6 +502,7 @@ export function renderEnding(root, e, { onSame, onNew, seed, avatar, away }) {
         ),
         h('p', { class: 'taiwan' }, e.truth),
       ),
+      semesterSection(e),
       e.autoLine && h('p', { class: 'small muted', style: 'margin-top:14px' }, e.autoLine),
       btns));
     return;
@@ -496,6 +521,7 @@ export function renderEnding(root, e, { onSame, onNew, seed, avatar, away }) {
       h('div', { class: 'age' }, h('b', null, '好事'), h('span', null, e.good)),
       h('div', { class: 'age' }, h('b', null, '遺憾'), h('span', null, e.regret)),
     ),
+    semesterSection(e),
     h('div', { class: 'paper', style: 'margin-top:14px' },
       h('h2', { style: 'font-size:18px;margin-bottom:8px' }, '後台揭露：三年的隱藏曲線'),
       h('div', { class: 'curves' },

@@ -6,6 +6,7 @@ import { buildCtx, drawCard, drawDatingCard, ensurePartner, fill, describeCard, 
 import { checkLife, DEATH_LINE } from './life.js';
 import { setSlotData } from './slots.js';
 import { stepPeers } from './peers.js';
+import { recordSemester } from './conduct.js';
 import { computeOutcome, semesterReport, formatDate, formatDateLong } from './report.js';
 
 export const TOTAL_TURNS = 70; // 3 學年 × 24 回合，扣掉畢業後沒有的最後一個暑假（2 回合）
@@ -319,7 +320,7 @@ function runFixed(st, data, tl, f, r, out) {
   } else if (f.kind === 'apply') {
     const voc = st.identity.kind === '技高';
     // 技高的備審看證照與競賽，普高看社團與營隊
-    const portfolio = (st.flags['社團:科學'] ? 2 : 0) + (st.flags['社團:音樂'] ? 2 : 0) + (st.flags['社團:運動'] ? 2 : 0) + (st.flags.去過營隊 ? 3 : 0) + (st.flags.社團中 ? 1 : 0)
+    const portfolio = (st.flags['社團:科學'] ? 2 : 0) + (st.flags['社團:音樂'] ? 2 : 0) + (st.flags['社團:運動'] ? 2 : 0) + (st.flags.去過營隊 ? 3 : 0) + (st.flags.科展指導 ? 2 : 0) + (st.flags.競賽代表 ? 2 : 0) + (st.flags.師長推薦函 ? 2 : 0) + (st.flags.社團中 ? 1 : 0)
       + (voc ? (st.flags.報名證照 ? 1 : 0) + (st.flags.技藝選手 ? 2 : 0) + (st.flags.實習認真 ? 1 : 0) : 0);
     const penalty = S.露餡 >= 2 ? 4 : 0;
     st.final = (st.tcte ?? st.gsat ?? S.理解) + Math.min(portfolio, 6) - penalty + gauss(r) * 4;
@@ -490,6 +491,7 @@ export function finishTurn(st, data) {
   if (dead) { st.ended = true; }
   else {
     if (st.turn >= TOTAL_TURNS) { st.ended = true; if (!st.outcome) st.outcome = computeOutcome(st, data); }
+    if ((finished.seg === '上學期' || finished.seg === '下學期') && finished.idx === 9) recordSemester(st, finished); // 每學期一筆紀錄；高三下沒有報告視窗，也在這裡補上
     if ((finished.seg === '上學期' || finished.seg === '下學期') && finished.idx === 9 && !st.ended) {
       report = semesterReport(st, data, finished);
       st.reportPending = report;

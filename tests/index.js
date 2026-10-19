@@ -2,3 +2,4 @@
 import('./engine.test.mjs');
 import('./stats.test.mjs');
 import('./endings.test.mjs');
+import('./manners.test.mjs');

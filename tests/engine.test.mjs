@@ -12,7 +12,7 @@ import { buildCtx, passes, describeCard, applyChoice } from '../js/engine/events
 import { applyHabits, COUPLE_LINES } from '../js/engine/turn.js';
 import { buildEnding } from '../js/engine/report.js';
 import { N_PEERS, stepPeers } from '../js/engine/peers.js';
-import { tutorCap, tutorMaxLevel, famStep, shockOf, effectiveEcon } from '../js/engine/family.js';
+import { tutorCap, tutorMaxLevel, famStep, shockOf, effectiveEcon, BIZ, SALARY } from '../js/engine/family.js';
 import { avatarSVG, avatarSpec, avatarOptsFromState, isCompletePalette } from '../js/engine/avatar.js';
 import { generateIdentity } from '../js/engine/identity.js';
 import { selfChoice, playRestAuto } from '../js/engine/auto.js';
@@ -20,7 +20,7 @@ import { selfChoice, playRestAuto } from '../js/engine/auto.js';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const rd = (f) => JSON.parse(readFileSync(join(root, 'data', f), 'utf8'));
 const withCampus = () => { const e = rd('events.json'); for (const f of readdirSync(join(root, 'data')).sort()) if (/^events_.+\.json$/.test(f)) e.cards.push(...rd(f).cards); return e; };
-const raw = () => ({ identities: rd('identities.json'), events: withCampus(), calendar: rd('calendar.json'), life_events: rd('life_events.json') });
+const raw = () => ({ identities: rd('identities.json'), schools: rd('schools.json'), events: withCampus(), calendar: rd('calendar.json'), life_events: rd('life_events.json') });
 const data = prepareData(raw());
 
 // 固定的「玩家」：習慣與選擇都由自己的亂數決定
@@ -247,18 +247,17 @@ test('像素小人：身分外貌由種子決定，名字依性別', () => {
     else { girls++; if (a.bottom === '裙') girlsSkirt++; }
     if (a.glasses) glasses++;
     assert.ok(a.hair >= 0 && a.hair < 3 && idn.avatar.skins[a.skin] && idn.avatar.hairColors[a.hairColor]);
-    assert.ok(idn.uniforms[a.schoolKey]);
+    assert.ok(idn.uniformPalettes[a.schoolKey]);
   }
   assert.ok(girlsSkirt / girls > 0.65 && girlsSkirt / girls < 0.85);
   assert.ok(glasses / 400 > 0.25 && glasses / 400 < 0.45);
 });
 
-test('像素小人：每所學校都有完整制服與運動服調色盤，且彼此不同', () => {
-  const idn = data.identities;
-  const names = idn.schools.flatMap((s) => s.names);
-  for (const n of names) assert.ok(isCompletePalette(idn.uniforms[n]), n);
-  const sigs = new Set(names.map((n) => JSON.stringify(idn.uniforms[n])));
-  assert.equal(sigs.size, names.length);
+test('像素小人：每套制服調色盤都完整（含運動服），且彼此不同', () => {
+  const pal = data.identities.uniformPalettes;
+  assert.ok(pal.length >= 16);
+  pal.forEach((u, i) => assert.ok(isCompletePalette(u), String(i)));
+  assert.equal(new Set(pal.map((u) => JSON.stringify(u))).size, pal.length);
 });
 
 test('像素小人：avatarSVG 為純函式，輸出隨學校與狀態改變', () => {
@@ -269,7 +268,7 @@ test('像素小人：avatarSVG 為純函式，輸出隨學校與狀態改變', (
   assert.ok(svg.startsWith('<svg'));
   assert.ok(svg.includes('shape-rendering="crispEdges"') && svg.includes('viewBox="0 0 16 24"'));
   assert.equal(svg, avatarSVG(spec, { outfit: 'uniform' }));
-  const other = { ...spec, uniform: idn.uniforms[Object.keys(idn.uniforms).find((k) => k !== id.schoolKey)] };
+  const other = { ...spec, uniform: idn.uniformPalettes[(id.schoolKey + 1) % idn.uniformPalettes.length] };
   assert.notEqual(svg, avatarSVG(other, { outfit: 'uniform' }));
   for (const o of [{ outfit: 'pe' }, { outfit: 'casual' }, { frame: 1 }, { tired: true }, { phone: true, glow: true }, { mood: 'happy' }, { mood: 'sad' }, { bandage: true }, { gaming: true, sweat: true, backpack: true, hw: 'chat' }, { hw: 'paper', slouch: true }]) {
     const v = avatarSVG(spec, o);
@@ -860,4 +859,89 @@ test('同屆的其他人：peerFeed 最多 12 則，且死亡消息不含姓名'
     for (const f of st.peerFeed) assert.ok(f.text && typeof f.turn === 'number');
   }
   assert.ok(any > 0, '應該至少留下一些消息');
+});
+
+test('真實學校名冊：每所學校縣市有效、遮罩名含一個○、同縣市不重名、縣市共 22', () => {
+  const idn = data.identities, list = idn.schoolList;
+  const counties = new Map(idn.counties.map((c) => [c.name, c]));
+  assert.equal(counties.size, 22);
+  assert.ok(list.length >= 450);
+  const seen = new Set();
+  for (const s of list) {
+    const c = counties.get(s.county);
+    assert.ok(c, s.county);
+    assert.ok(c.districts.includes(s.district), s.n);
+    assert.equal([...s.n].filter((ch) => ch === '○').length, 1, s.n);
+    assert.ok(['普高', '技高', '綜高', '單科'].includes(s.kind) && ['star', 'pstar', 'community', 'general'].includes(s.tier) && s.w > 0);
+    assert.ok(!seen.has(s.county + s.n), s.county + s.n);
+    seen.add(s.county + s.n);
+  }
+  for (const c of idn.counties) {
+    assert.ok(c.name.includes('臺') || !c.name.includes('台'));
+    assert.equal(c.tier, ['臺北市', '新北市', '桃園市', '臺中市', '臺南市', '高雄市'].includes(c.name) ? '六都' : '其他');
+    assert.ok(list.some((s) => s.county === c.name));
+  }
+});
+
+test('身分：學校在自己的縣市、制服調色盤有效、群科只屬於技高／綜高', () => {
+  const idn = data.identities;
+  const byCode = new Map(idn.schoolList.map((s) => [s.id, s]));
+  const groups = new Set(idn.vocGroups.map((g) => g.n));
+  const types = new Set();
+  for (let seed = 1; seed <= 200; seed++) {
+    const id = generateIdentity(seed, idn);
+    const s = byCode.get(id.schoolCode);
+    assert.ok(s && s.county === id.county && s.district === id.schoolDistrict && s.kind === id.kind);
+    assert.ok(id.school.startsWith(s.n) && (s.pub || id.school.endsWith('（私立）')));
+    assert.ok(idn.uniformPalettes[id.schoolKey] && isCompletePalette(idn.uniformPalettes[id.schoolKey]));
+    assert.ok(idn.schools.some((t) => t.id === id.schoolId));
+    const voc = id.kind === '技高' || id.kind === '綜高';
+    if (voc) assert.ok(groups.has(id.vocGroup)); else assert.equal(id.vocGroup, null);
+    assert.ok(idn.counties.find((c) => c.name === id.county).districts.includes(id.district));
+    types.add(id.schoolId);
+  }
+  assert.ok(types.has('public_voc') && types.has('community') && types.has('comprehensive'));
+  // 同一所學校 → 同一套制服
+  const a = generateIdentity(1, idn);
+  assert.equal(idn.uniformPalettes.length > 0 && a.schoolKey, a.schoolKey);
+});
+
+test('家庭型態：5,000 個種子的分布接近設計值，且各型態的稱呼與規則正確', () => {
+  const idn = data.identities, n = 5000, cnt = {};
+  for (let seed = 1; seed <= n; seed++) {
+    const f = generateIdentity(seed, idn).family;
+    cnt[f.structure] = (cnt[f.structure] || 0) + 1;
+    if (f.structure === '隔代') assert.ok(f.parent === '阿嬤' || f.parent === '阿公');
+    else assert.ok(f.parent === '爸爸' || f.parent === '媽媽');
+    if (f.structure === '重組') assert.equal(f.step, f.parent === '爸爸' ? '繼母' : '繼父'); else assert.equal(f.step, null);
+  }
+  for (const [k, p] of Object.entries({ 雙親: 0.78, 離異: 0.13, 隔代: 0.03, 重組: 0.04, 喪親: 0.02 })) assert.ok(Math.abs((cnt[k] || 0) / n - p) <= 0.03, `${k} ${(cnt[k] || 0) / n}`);
+});
+
+test('職業：每個職業都歸類為自營（BIZ）或領薪水（SALARY），權重與名稱一一對應', () => {
+  const idn = data.identities;
+  assert.equal(idn.jobs.length, idn.jobWeights.length);
+  assert.ok(idn.jobs.length >= 28);
+  for (const j of idn.jobs) {
+    assert.ok(BIZ.includes(j.name) !== SALARY.includes(j.name), j.name);
+    assert.equal(j.econ.length, 3); assert.equal(j.support.length, 3);
+    assert.ok(j.sleep >= 0 && j.sleep <= 0.3);
+  }
+  for (const nm of [...BIZ, ...SALARY]) assert.ok(idn.jobs.some((j) => j.name === nm), nm);
+});
+
+test('技高不選學群；家庭型態卡與技高卡都有符合的人才會出現', () => {
+  const idn = data.identities;
+  const find = (f) => { for (let s = 1; s < 3000; s++) { const st = newState(s, data); if (f(st.identity)) return st; } };
+  const voc = find((i) => i.kind === '技高'), gen = find((i) => i.kind === '普高');
+  const tc = data.cardIndex.track_choice;
+  assert.equal(passes(tc, voc, buildCtx(voc, data.timeline[10])), false);
+  assert.equal(passes(tc, gen, buildCtx(gen, data.timeline[10])), true);
+  const fs = data.events.cards.filter((c) => c.id.startsWith('fs_') && c.requires?.expr?.includes('家庭 =='));
+  assert.ok(fs.length >= 8);
+  const st = find((i) => i.family.structure === '雙親');
+  for (const c of fs) assert.equal(passes(c, st, buildCtx(st, data.timeline[10])), false, c.id);
+  const vc = data.events.cards.filter((c) => c.id.startsWith('voc_') && c.requires?.expr?.startsWith('技高'));
+  assert.ok(vc.length >= 6);
+  for (const c of vc) assert.equal(passes(c, gen, buildCtx(gen, data.timeline[10])), false, c.id);
 });

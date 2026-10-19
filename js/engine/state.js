@@ -31,6 +31,7 @@ export function newState(seed, data) {
     專注: 72, 理解: 42 + gauss(r) * 3, 體力: 80, 聯繫: 30, 知心: 1, 心情: 55, 幸福: 55,
     錢包: start.錢包, AI依賴: 0, 親子: { 放任: 50, 支持: 65, 高期待: 45, 自顧不暇: 40 }[identity.family.style] ?? 50, 投資: 0, 投資本金: 0, 睡眠債: 1, 牽掛: 0, 假熟悉: 0, 班級氣氛: 0.5, 興趣: 1.0, 資訊: identity.info, 露餡: 0,
   };
+  stats.親子 += (idn.familyStructures.find((x) => x.id === identity.family.structure) || {}).親子 || 0; // 離異、重組：關係起點較低
   for (const [k, v] of Object.entries(school.mod)) {
     if (k === '班級氣氛') stats[k] = v;
     else stats[k] += v;

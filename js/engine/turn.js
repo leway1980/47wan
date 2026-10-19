@@ -54,7 +54,7 @@ export function prepareData(raw) {
     cardIndex[c.id] = c;
   }
   const life = { events: raw.life_events.events, byId: Object.fromEntries(raw.life_events.events.map((e) => [e.id, e])) };
-  return { identities: raw.identities, events: raw.events, calendar: raw.calendar, life, cardIndex, timeline: buildTimeline(raw.calendar) };
+  return { identities: { ...raw.identities, schoolList: raw.schools.schools }, events: raw.events, calendar: raw.calendar, life, cardIndex, timeline: buildTimeline(raw.calendar) };
 }
 
 /* ───────────── 習慣自動結算 ───────────── */
@@ -331,7 +331,7 @@ export function startTurn(st, data) {
 
   // 2. 固定劇情
   for (const f of tl.fixed) {
-    if (f.kind === 'card') { if (!cur.card && !(st.used[f.event])) cur.card = cardById(data, f.event); }
+    if (f.kind === 'card') { if (!cur.card && !(st.used[f.event])) { const fc = cardById(data, f.event); if (passes(fc, st, buildCtx(st, tl))) cur.card = fc; } } // 固定卡也要符合自己的 requires（例如技高不選學群）
     else runFixed(st, data, tl, f, r, cur);
   }
   // 3. 延遲佇列（家庭變動的卡優先）

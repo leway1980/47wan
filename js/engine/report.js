@@ -245,7 +245,7 @@ export function buildEnding(st, data) {
   if (changed) chosen.push(`把通勤方式從「${id.commuteOrig}」改成「${id.commute}」`);
   for (const c of st.choices.filter((c) => c.id !== 'orientation').slice(-5)) chosen.push(`「${c.title}」：${c.label}`);
   drawn.push(`出生在${id.county}${id.district}，念${id.schoolType}（座號 ${id.seat} 號）`);
-  drawn.push(`家裡：${id.family.job}，${id.family.econ}，${id.family.support}`);
+  drawn.push(`家裡：${id.family.job}，${id.family.econ}，${id.family.support}${id.family.structure && id.family.structure !== '雙親' ? `（${id.family.structure}家庭）` : ''}`);
   if (!changed) drawn.push(`每天通勤的方式：${id.commuteOrig}`);
   const seen = [...new Set(st.choices.map((c) => c.title))].slice(0, 5);
   if (seen.length) drawn.push(`遇到的事：${seen.map((t) => '「' + t + '」').join('、')}`);

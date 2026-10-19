@@ -1,5 +1,5 @@
 // 開局抽籤：玩家什麼都不用打。姓名、座號、縣市、學校、家庭、通勤全部由種子決定。
-import { mulberry32, pick, pickWeighted, pickKey, randInt } from './rng.js';
+import { mulberry32, pick, pickWeighted, pickKey, randInt, hashStr } from './rng.js';
 
 export function rollCommute(r, idn, county, econ) {
   const base = idn.commuteBase[county.tier];
@@ -24,9 +24,46 @@ export function rollFamily(r, idn, county) {
 }
 const idx = (o) => o.i;
 
-export function rollSchool(r, idn, county) {
-  return pickWeighted(r, idn.schools, (s) => s.w[county.tier]);
+// 真實學校名冊（data/schools.json）依縣市分組，只建一次
+const byCounty = new WeakMap();
+function countySchools(idn, name) {
+  let m = byCounty.get(idn);
+  if (!m) {
+    m = new Map();
+    for (const x of idn.schoolList || []) (m.get(x.county) || m.set(x.county, []).get(x.county)).push(x);
+    byCounty.set(idn, m);
+  }
+  return m.get(name) || [];
 }
+
+/** 真實學校 → 遊戲裡的學校類型（mod、補習、學費、劇情條件都掛在類型上） */
+export function schoolTypeId(x) {
+  if (x.tier === 'star') return 'star';
+  if (x.tier === 'pstar') return 'private_elite';
+  if (x.kind === '技高') return x.pub ? 'public_voc' : 'private_voc';
+  if (x.kind === '綜高') return 'comprehensive';
+  if (x.kind === '單科') return 'community';
+  return x.pub ? 'community' : 'private_general'; // 公立普高（含非明星的一般校）都歸「社區」，劇情用 明星 條件區分
+}
+
+/** 在縣市裡依學生數抽一所真實學校，回傳 { type, sch } */
+export function rollSchool(r, idn, county) {
+  const sch = pickWeighted(r, countySchools(idn, county.name), (x) => x.w);
+  return { type: idn.schools.find((t) => t.id === schoolTypeId(sch)), sch };
+}
+
+/** 家庭型態：獨立亂數流，結果會影響家境、零用錢與稱呼 */
+export function rollStructure(rs, idn) {
+  return pickWeighted(rs, idn.familyStructures, (x) => x.w);
+}
+
+const ECONS = ['寬裕', '小康', '吃緊'];
+export const structureLine = (f) => ({
+  離異: `爸媽離婚，平常跟${f.parent}住`,
+  隔代: `爸媽在外地工作，平常由${f.parent}照顧你`,
+  重組: `${f.parent}再婚了，家裡多了${f.step}`,
+  喪親: `家裡只有你和${f.parent}`,
+}[f.structure] || '');
 
 export const SUBJECTS = ['國文', '英文', '數學', '自然', '社會'];
 
@@ -38,11 +75,16 @@ export function generateIdentity(seed, idn) {
   const sex = ra() < 0.5 ? '男' : '女';
   const given = pick(r, sex === '男' ? idn.givenNamesM : idn.givenNamesF);
   const county = pickWeighted(r, idn.counties, (c) => c.w);
-  const district = pick(r, county.districts);
+  const { type: schoolType, sch } = rollSchool(r, idn, county);
+  const district = r() < 0.7 ? sch.district : pick(r, county.districts); // 七成住在學校同一區
   const seat = randInt(r, 1, 35);
-  const schoolType = rollSchool(r, idn, county);
-  const school = pick(r, schoolType.names) + '高中' + (schoolType.id.startsWith('private') ? '（私立）' : '');
+  const school = sch.n + (sch.pub ? '' : '（私立）');
   const fam = rollFamily(r, idn, county);
+  // 家庭型態、群科：獨立亂數流，不影響其他抽籤
+  const rs = mulberry32((seed ^ 0x5bd1e995) >>> 0);
+  const struct = rollStructure(rs, idn);
+  if (struct.econDown && rs() < struct.econDown) fam.econ = ECONS[Math.min(2, ECONS.indexOf(fam.econ) + 1)]; // 單薪：家境往下一級
+  const vocGroup = sch.kind === '技高' || sch.kind === '綜高' ? pickWeighted(rs, idn.vocGroups, (x) => x.w).n : null;
   const style = pick(r, idn.styles);
   const commute = rollCommute(r, idn, county, fam.econ);
   const av = idn.avatar;
@@ -53,15 +95,19 @@ export function generateIdentity(seed, idn) {
     skin: pickWeighted(ra, av.skins.map((c, i) => ({ i, w: av.skinW[i] })), (x) => x.w).i,
     glasses: ra() < 0.35,
   };
-  const parent = ra() < 0.5 ? '爸爸' : '媽媽';
+  let parent = ra() < 0.5 ? '爸爸' : '媽媽';
+  const step = struct.id === '重組' ? (parent === '爸爸' ? '繼母' : '繼父') : null;
+  if (struct.id === '隔代') parent = rs() < 0.7 ? '阿嬤' : '阿公';
   const W = { 高期待: [6, 3.5, 0.5], 支持: [2.5, 5.5, 2], 放任: [1, 3, 6], 自顧不暇: [0.5, 2.5, 7] }[style] || [2, 5, 3];
+  if (struct.id === '隔代') { W[0] *= 0.4; W[2] *= 1.8; } // 阿公阿嬤比較不太管
   const parentRule = ['嚴格', '普通', '不太管'][pickWeighted(ra, W.map((w, i) => ({ i, w })), (x) => x.w).i];
-  const schoolKey = Object.keys(idn.uniforms).find((k) => school.startsWith(k)) || Object.keys(idn.uniforms)[0];
+  const schoolKey = hashStr(sch.id) % idn.uniformPalettes.length; // 同一所學校的人穿同一套制服
   // 零用錢與各科天分：獨立亂數流，不影響其他抽籤
   const rm = mulberry32((seed ^ 0x1f2e3d4c) >>> 0);
   const ALLOW = { 寬裕: [1500, 4000], 小康: [600, 2000], 吃緊: [0, 700] }[fam.econ];
   const noAllow = rm() < { 寬裕: 0.08, 小康: 0.15, 吃緊: 0.35 }[fam.econ]; // 沒有固定零用錢，要用時再跟家裡拿
-  const allowanceMonth = noAllow ? 0 : Math.round((ALLOW[0] + rm() * (ALLOW[1] - ALLOW[0])) / 100) * 100;
+  let allowanceMonth = noAllow ? 0 : Math.round((ALLOW[0] + rm() * (ALLOW[1] - ALLOW[0])) / 100) * 100;
+  if (struct.allowance) allowanceMonth = Math.round((allowanceMonth * struct.allowance) / 100) * 100;
   const aptitude = {};
   for (const sub of SUBJECTS) aptitude[sub] = Math.round((rm() - 0.5) * 30); // −15～+15
   return {
@@ -77,30 +123,44 @@ export function generateIdentity(seed, idn) {
     schoolId: schoolType.id,
     schoolType: schoolType.name,
     school,
+    schoolCode: sch.id,
+    schoolDistrict: sch.district,
+    schoolTier: sch.tier,
+    kind: sch.kind,
+    vocGroup,
     family: {
       support: fam.support,
       econ: fam.econ,
       job: fam.job.name,
-      jobDesc: fam.job.desc,
-      sleep: fam.job.sleep,
+      jobDesc: struct.id === '隔代' ? `爸媽在外地工作（${fam.job.name}），平常由${parent}照顧你` : fam.job.desc,
+      sleep: struct.id === '隔代' ? 0 : fam.job.sleep,
       style,
       parent,
+      structure: struct.id,
+      step,
     },
     parentRule,
     allowanceMonth,
     aptitude,
     commute,
     commuteOrig: commute,
-    info: idn.infoBySupport[fam.support],
+    info: idn.infoBySupport[fam.support] + (struct.資訊 || 0),
   };
 }
 
+const KIND_PHRASE = {
+  普高: '和你一樣讀普通高中的大約有一半。',
+  技高: '和你一樣讀技術型高中的大約三成。',
+  綜高: '讀綜合高中的只占少數，你是其中一個。',
+  單科: '讀專門領域單科高中的人很少，你是其中一個。',
+};
 export function openingText(id, idn) {
   const econ = idn.econPhrase[id.family.econ];
+  const sline = id.family.structure === '隔代' ? '' : structureLine(id.family); // 隔代的說明已在 jobDesc 裡
   return [
     '你是 2026 年 8 月，全台 47 萬名高中、高職學生裡的一人。',
-    `你叫${id.name}，座號 ${id.seat} 號，在${id.county}${id.district}的一所${id.schoolType}。你${idn.commutePhrase[id.commute]}。`,
-    `${id.family.jobDesc}，${econ}。${id.allowanceMonth ? `每個月零用錢 ${id.allowanceMonth.toLocaleString('en-US')} 元。` : '家裡沒有固定給零用錢，要用時再開口。'}`,
-    `這 47 萬人裡，和你一樣讀普通高中的大約有一半。`,
+    `你叫${id.name}，座號 ${id.seat} 號。你住在${id.county}${id.district}，學校是${id.district === id.schoolDistrict ? '同一區的' : ''}${id.school.replace('（私立）', '')}（${id.schoolDistrict}${id.school.endsWith('（私立）') ? '，私立' : ''}）。你${idn.commutePhrase[id.commute]}。`,
+    `${id.family.jobDesc}，${econ}。${sline ? sline + '。' : ''}${id.allowanceMonth ? `每個月零用錢 ${id.allowanceMonth.toLocaleString('en-US')} 元。` : '家裡沒有固定給零用錢，要用時再開口。'}`,
+    `這 47 萬人裡，${KIND_PHRASE[id.kind] || KIND_PHRASE.普高}`,
   ];
 }

@@ -37,9 +37,9 @@ async function loadData() {
     if (!r.ok) throw new Error(`載入 ${f} 失敗 (${r.status})`);
     return r.json();
   };
-  const [identities, events, calendar, life_events, campus, payoff, dating] = await Promise.all(['identities.json', 'events.json', 'calendar.json', 'life_events.json', 'events_campus.json', 'events_payoff.json', 'events_dating.json'].map(get));
+  const [identities, schools, events, calendar, life_events, campus, payoff, dating] = await Promise.all(['identities.json', 'schools.json', 'events.json', 'calendar.json', 'life_events.json', 'events_campus.json', 'events_payoff.json', 'events_dating.json'].map(get));
   events.cards.push(...campus.cards, ...payoff.cards, ...dating.cards); // 校園事件、前因後果卡、交往事件放在獨立檔案
-  data = prepareData({ identities, events, calendar, life_events });
+  data = prepareData({ identities, schools, events, calendar, life_events });
 }
 
 /* ───── 遊戲狀態（控制器內） ───── */
@@ -81,7 +81,7 @@ function showIntro(s) {
     tags: [id.county + id.district, id.schoolType, id.family.econ, `通勤：${id.commute}`],
     seed,
     avatar: { spec: avatarSpec(id, data.identities, seed), opts: { outfit: 'uniform', mood: 'neutral' } },
-    uniformCaption: `${id.schoolKey}高中制服`,
+    uniformCaption: `${id.school}的制服`,
     onStart: () => startGame(draft),
     onReroll: () => showIntro(newSeed()),
   });

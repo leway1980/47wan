@@ -125,6 +125,7 @@ export function buildCtx(st, tl) {
     回合: st.turn, 假期: tl ? !!tl.vacation : false, 寒假: tl ? tl.seg === '寒假' : false, 考試週: examNow,
     家裡狀況: (st.fam && st.fam.shock && st.fam.shock.id) || '',
     網友回合: st.netStart == null ? -1 : st.turn - st.netStart,
+    明星: id.schoolTier === 'star' || id.schoolTier === 'pstar', 技高: id.kind === '技高' || id.kind === '綜高', 都會: id.tier === '六都' && id.district.endsWith('區'), 群: id.vocGroup || '', 家庭: id.family.structure, 繼親: id.family.step || '', 同住: id.family.parent,
   };
 }
 

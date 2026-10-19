@@ -134,7 +134,7 @@ const RANGE = {
 export const VISIBLE_KEYS = ['心情', '聯繫', '知心', '體力', '錢包', '分數'];
 
 export function addStat(st, k, d) {
-  if (k === '分數') { addStat(st, '理解', d * 0.6); addStat(st, '假熟悉', d * 0.4); return; }
+  if (k === '分數') { addStat(st, '理解', d * 0.3); addStat(st, '假熟悉', d * 0.3); return; } // 卡片上的分數↑只是小幅、一部分是短期的
   const r = RANGE[k];
   if (!r) throw new Error('未知的數值: ' + k);
   st.stats[k] = clamp(st.stats[k] + d, r[0], r[1]);

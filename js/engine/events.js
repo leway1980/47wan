@@ -234,7 +234,7 @@ export function applyChoice(st, data, card, idx, ctx, r, turnNo) {
   for (const f of ch.setFlags || []) st.flags[f] = true;
   for (const f of ch.clearFlags || []) delete st.flags[f];
   if (ch.setHabits) Object.assign(st.habits, ch.setHabits);
-  if (ch.addHabits) for (const [k, d] of Object.entries(ch.addHabits)) st.habits[k] = clamp(st.habits[k] + d, 0, k === '補習' ? 3 : 4);
+  if (ch.addHabits) for (const [k, d] of Object.entries(ch.addHabits)) st.habits[k] = clamp(st.habits[k] + d, 0, { 補習: 3, 遊戲: 3, 運動: 2 }[k] ?? 4);
   if (ch.setCommute) st.identity.commute = ch.setCommute;
   for (const d of ch.delayed || []) {
     const hit = r() < d.chance * (d.event === 'fam_scholarship' ? 0.8 + 0.4 * ((st.stats.親子 ?? 50) / 100) : 1);

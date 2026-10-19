@@ -408,7 +408,12 @@ test('零用錢：投資報酬可重現、帳戶不為負；存下／投資讓�
     const bal = [];
     while (!st.ended && !st.dead) {
       const res = startTurn(st, data);
-      if (res.card) chooseCard(st, data, res.card.choices.find((c) => !c.disabled).i);
+      if (res.card) {
+        // 這個測試只看投資帳戶本身：避開會改變零用錢用途的選項
+        const raw = data.cardIndex[res.card.id].choices;
+        const pick = res.card.choices.find((c) => !c.disabled && !(raw[c.i].setHabits && raw[c.i].setHabits.零用錢)) || res.card.choices.find((c) => !c.disabled);
+        chooseCard(st, data, pick.i);
+      }
       finishTurn(st, data);
       bal.push(st.stats.投資);
       assert.ok(st.stats.投資 >= 0 && st.stats.錢包 >= 0 && st.stats.投資本金 >= 0);

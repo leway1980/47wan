@@ -9,6 +9,17 @@ export const HABIT_DEFAULTS = { 零用錢: '花掉', 手機: 2, 睡前手機: fa
 export const HW_MODES = ['紙本', '上網查', '開群組邊寫邊聊'];
 export const CLASS_MODES = ['跟著上', '挑重點聽', '做自己的事', '放空', '補眠'];
 
+// 開學時的習慣：不是玩家選的，是這個人原本的樣子；之後只會因為事件裡的選擇慢慢改變
+export function startHabits(seed, identity) {
+  const r = mulberry32((seed ^ 0x6b43a9b5) >>> 0);
+  const h = { ...HABIT_DEFAULTS };
+  const u = r();
+  h.手機 = u < 0.2 ? 1 : u < 0.7 ? 2 : 3;
+  h.遊戲 = r() < (identity.sex === '男' ? 0.45 : 0.25) ? 1 : 0;
+  h.運動 = r() < 0.25 ? 1 : 0;
+  return h;
+}
+
 export function newState(seed, data) {
   seed = seed >>> 0;
   const idn = data.identities;
@@ -27,7 +38,7 @@ export function newState(seed, data) {
   const peers = genPeers(seed, data, identity.name);
   return {
     v: SAVE_VERSION, seed, turn: 0, rngS: (seed ^ 0xa5a5a5a5) >>> 0, peerS: (seed ^ 0x3c6ef372) >>> 0,
-    identity, stats, habits: { ...HABIT_DEFAULTS }, flags: {}, cooldowns: {}, used: {},
+    identity, stats, habits: startHabits(seed, identity), flags: {}, cooldowns: {}, used: {},
     delayed: [], deferred: [], majorCount: {}, choices: [], luck: [], hist: [], logs: [],
     peers, peerCounts: newPeerCounts(), peerSnap: newPeerCounts(),
     recover: 0, dead: false, deathTurn: null, ended: false,

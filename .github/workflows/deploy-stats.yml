@@ -33,8 +33,9 @@ jobs:
             # 去掉貼上時多帶的空白或換行；格式不對就直接說明，不把 token 印出來
             T=$(printf '%s' "$CLOUDFLARE_API_TOKEN" | tr -d '[:space:]')
             A=$(printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | tr -d '[:space:]')
-            if ! printf '%s' "$T" | grep -qE '^[A-Za-z0-9_-]{30,80}$'; then
-              echo "::error::CLOUDFLARE_API_TOKEN 格式不對：應該是一串 40 字左右的英數字，只貼 token 本身，不要附上說明文字或指令。"; exit 1
+            # 只擋明顯不是 token 的內容（太短、太長或含非 ASCII 字元）；真正有效與否交給下一步向 Cloudflare 驗證
+            if ! printf '%s' "$T" | LC_ALL=C grep -qE '^[!-~]{20,200}$'; then
+              echo "::error::CLOUDFLARE_API_TOKEN 看起來不是 token（長度 ${#T}）：只貼 token 本身，不要附上說明文字或指令。"; exit 1
             fi
             if ! printf '%s' "$A" | grep -qE '^[0-9a-f]{32}$'; then
               echo "::error::CLOUDFLARE_ACCOUNT_ID 格式不對：應該是 32 個英數字（0-9、a-f）。"; exit 1

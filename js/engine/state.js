@@ -37,8 +37,9 @@ export function newState(seed, data) {
   }
   const peers = genPeers(seed, data, identity.name);
   return {
-    v: SAVE_VERSION, seed, turn: 0, rngS: (seed ^ 0xa5a5a5a5) >>> 0, peerS: (seed ^ 0x3c6ef372) >>> 0, autoS: (seed ^ 0x51ed270b) >>> 0,
+    v: SAVE_VERSION, seed, turn: 0, rngS: (seed ^ 0xa5a5a5a5) >>> 0, peerS: (seed ^ 0x3c6ef372) >>> 0, autoS: (seed ^ 0x51ed270b) >>> 0, slotS: (seed ^ 0x7f4a7c15) >>> 0,
     identity, stats, habits: startHabits(seed, identity), flags: {}, cooldowns: {}, used: {},
+    slotLast: {}, flavorSeen: {},
     delayed: [], deferred: [], majorCount: {}, choices: [], payoffs: [], luck: [], hist: [], logs: [],
     peers, peerCounts: newPeerCounts(), peerSnap: newPeerCounts(), peerFeed: [],
     recover: 0, dead: false, deathTurn: null, ended: false,
@@ -51,6 +52,7 @@ export const deserialize = (s) => {
   const st = JSON.parse(s);
   if (!st || st.v !== SAVE_VERSION) throw new Error('存檔版本不符');
   st.peerFeed ??= []; // 舊存檔沒有
+  st.slotS ??= ((st.seed ^ 0x7f4a7c15) >>> 0); st.slotLast ??= {}; st.flavorSeen ??= {};
   return st;
 };
 

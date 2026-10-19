@@ -14,7 +14,7 @@ const rd = (f) => JSON.parse(readFileSync(join(root, 'data', f), 'utf8'));
 export function loadData() {
   const events = rd('events.json');
   for (const f of readdirSync(join(root, 'data')).sort()) if (/^events_.+\.json$/.test(f)) events.cards.push(...rd(f).cards); // 校園卡、前因後果卡等
-  return prepareData({ identities: rd('identities.json'), events, calendar: rd('calendar.json'), life_events: rd('life_events.json') });
+  return prepareData({ identities: rd('identities.json'), events, calendar: rd('calendar.json'), life_events: rd('life_events.json'), slots: rd('slots.json') });
 }
 
 export function randomPolicy(st) {

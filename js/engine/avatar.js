@@ -124,7 +124,7 @@ function outfitColors(spec, outfit) {
   return { shirt: u.shirt, trim: null, bottom: u.bottom, bottom2: u.bottom2 || null, accent: female ? u.accentF : u.accentM, badge: u.badge, pants: spec.bottom !== '裙' };
 }
 
-const FACE_INK = '#2a2230', MOUTH = '#b5535b', BLUSH = '#f0a0a0', BAG = '#8e7aa8', GLASS = '#7a84a6', PHONE = '#2b2f3a', SCREEN = '#8fd3ff', BAND = '#f7f3ea';
+const FACE_INK = '#2a2230', MOUTH = '#b5535b', BLUSH = '#f0a0a0', GLASS = '#7a84a6', PHONE = '#2b2f3a', SCREEN = '#8fd3ff', BAND = '#f7f3ea';
 
 /**
  * spec: avatarSpec() 的結果。
@@ -199,15 +199,14 @@ export function avatarSVG(spec, opts = {}) {
   if (spec.glasses) {
     for (const x of [5, 10]) { px(up, x, 5, GLASS, dy); px(up, x, 6, GLASS, dy); }
     px(up, 7, 5, GLASS, dy); px(up, 8, 5, GLASS, dy);
-    for (let x = 5; x <= 10; x++) px(up, x, 7, GLASS, dy);
     if (!closed) { px(up, 6, 5, FACE_INK, dy); px(up, 9, 5, FACE_INK, dy); }
   }
   // 手機螢幕的光打在臉上
   if (o.glow && !o.dead) {
-    for (const [x, y] of [[5, 8], [10, 8], [5, 6], [10, 6], [6, 9], [9, 9]]) px(up, x, y, lighten(skin, 0.35).replace(/^#(..)(..)(..)$/, (m, r, g, b) => '#' + r + g + 'ff'), dy);
+    for (const [x, y] of [[6, 8], [9, 8]]) px(up, x, y, lighten(skin, 0.3), dy); // 螢幕光：淡淡打亮下巴兩側
   }
   // 黑眼圈
-  if (o.tired && !o.dead) { px(up, 6, 7, BAG, dy); px(up, 9, 7, BAG, dy); }
+  if (o.tired && !o.dead) { px(up, 6, 7, shade(skin, 0.78), dy); px(up, 9, 7, shade(skin, 0.78), dy); } // 黑眼圈：比膚色深一階就好
   // 受傷：臉頰 OK 繃、手肘紗布
   if (o.bandage && !o.dead) { px(up, 10, 8, BAND, dy); px(up, 3, 15, BAND, dy); }
   // 手機

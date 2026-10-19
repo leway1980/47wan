@@ -345,7 +345,7 @@ export function showReport(refs, rp, { onGuess, onNext, guessed, st, avatar }) {
   const facts = [
     cram && `👥 1,000 人中 ${cram} 人在補習${st.habits.補習 > 0 ? '（你也是）' : ''}`,
     phoneHeavy && `📱 ${phoneHeavy} 人手機「一有空就滑」以上`,
-    days && pct && `🛵 你通勤 ${days} 天，一年事故機率約 ${pct}`,
+    days && pct && ['腳踏車', '微電車', '無照騎機車'].includes(st.identity.commute) && `${st.identity.commute === '腳踏車' ? '🚲' : '🛵'} 你騎車上學 ${days} 天，一年發生事故的機率約 ${pct}`,
   ].filter(Boolean);
   const out = h('p', { class: 'rq-out', 'data-out': '1', 'aria-live': 'polite' });
   const input = h('input', { class: 'rq-in', type: 'text', inputmode: 'numeric', pattern: '[0-9]*', maxlength: 3, placeholder: '猜幾 %？（可不填）', 'aria-label': rp.quiz.question });

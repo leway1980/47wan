@@ -33,10 +33,10 @@ export function computeOutcome(st) {
   const group = st.flags.自然學群 ? '自然學群' : st.flags.文法商學群 ? '文法商學群' : st.stats.理解 >= 50 ? '自然學群' : '文法商學群';
   const dept = DEPTS[group][Math.floor(rngAt(st.seed, 98, 'dept') * DEPTS[group].length)];
   let type;
-  if (s >= 64) type = '國立大學';
-  else if (s >= 50) type = u < 0.2 + ((s - 50) / 14) * 0.5 ? '國立大學' : '私立大學';
-  else if (s >= 36) type = u < 0.6 ? '私立大學' : '科技大學';
-  else type = u < 0.45 ? '重考一年' : '科技大學';
+  if (s >= 57) type = '國立大學';
+  else if (s >= 44) type = u < 0.2 + ((s - 44) / 13) * 0.5 ? '國立大學' : '私立大學';
+  else if (s >= 30) type = u < 0.6 ? '私立大學' : '科技大學';
+  else type = u < 0.35 ? '重考一年' : '科技大學';
   const retake = type === '重考一年';
   const text = retake ? '這次沒有上到想去的學校，你決定重考一年。' : `你錄取了${type}的${dept}。`;
   return { type, dept, group, retake, text, score: Math.round(s) };

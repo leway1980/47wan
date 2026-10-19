@@ -66,10 +66,15 @@ const COVER = { 自己就是資源: 0.4, 花錢買資源: 0.7, 自己找資源: 
 
 const GAME_LINES = ['每日任務還沒解完，你先上線點一下。', '限時活動只剩三天，你又打開了遊戲。', '公會戰今晚八點，你一直看時間。', '登入送十抽，你捨不得不領。', '體力條滿了，你找理由再上去一下。', '朋友說副本差一個人，你的手已經在滑。'];
 export function applyHabits(st, data, tl, r) {
+  // 家規期間手機等級被壓住，但不改玩家自己的設定；期滿後自動恢復
+  const H = st.habits, own = H.手機;
+  if (st.rule && st.turn < st.rule.until) H.手機 = Math.min(own, st.rule.cap);
+  try { return applyHabitsInner(st, data, tl, r); } finally { H.手機 = own; }
+}
+function applyHabitsInner(st, data, tl, r) {
   const S = st.stats, H = st.habits, id = st.identity, idn = data.identities, fam = id.family;
   const vac = tl.vacation, len = vac ? 2 : 1;
   const lines = [];
-  if (st.rule && st.turn < st.rule.until && H.手機 > st.rule.cap) H.手機 = st.rule.cap; // 家規
   /* 錢 */
   const econ = idn.econStart[fam.econ];
   const income = econ.allowance * len * (vac ? 0.8 : 1) + (st.flags.打工中 ? (vac ? 1800 : 900) : 0);
@@ -143,7 +148,7 @@ export function applyHabits(st, data, tl, r) {
   const mTarget = 50 + PHONE_MOOD[H.手機] + H.運動 * 3 - S.睡眠債 * 1.5 + (S.知心 - 2) * 2.5 + [0, 0, 1, 3][H.遊戲] + gauss(r) * 5 - cram * 2 + (st.flags.交往中 ? 6 : 0) - (S.體力 < 35 ? 5 : 0) - (tl.examWeek ? 4 : 0);
   S.心情 = clamp(0.4 * S.心情 + 0.6 * mTarget, 0, 100);
   if (S.錢包 < 300) S.心情 = clamp(S.心情 - 1, 0, 100); // 月底沒錢的壓力
-  S.心情 = clamp(S.心情 + (mode === '花掉' ? 2 : -1), 0, 100);
+  S.心情 = clamp(S.心情 + (mode === '花掉' ? 1 : -0.5), 0, 100);
   if (mode !== '花掉') S.聯繫 = clamp(S.聯繫 - 0.3, 0, 100);
   const noise = 0.7 + 0.6 * r();
   const hDelta = 2 * (PHONE_HAPPY[H.手機] * noise + 0.2 * (S.知心 - 2) + 0.3 * H.運動 - 0.12 * (S.睡眠債 - 2) - 0.3 * Math.max(0, cram - 1) - 0.05 * S.牽掛 + (st.flags.交往中 ? 0.2 : 0) + (st.flags.社團中 ? 0.15 : 0));
@@ -151,7 +156,8 @@ export function applyHabits(st, data, tl, r) {
 
   /* 人際 */
   S.聯繫 = clamp(S.聯繫 + (PHONE_LINK[H.手機] + (cram > 0 ? 0.5 : 0) + (st.flags.社團中 ? 1 : 0) + (H.遊戲 > 0 ? 0.5 : 0)) * len - (S.聯繫 - 15) * 0.12, 0, 100);
-  S.知心 = clamp(S.知心 + (S.聯繫 > 35 ? 0.04 : 0) + (st.flags.交往中 ? 0.03 : 0) - (S.知心 > 1 ? 0.07 : 0.02), 0, 5);
+  S.知心 = clamp(S.知心 + (S.聯繫 > 35 ? 0.06 : 0) + (st.flags.社團中 ? 0.02 : 0) + (st.flags.交往中 ? 0.03 : 0) - (S.知心 > 1 ? 0.07 : 0.02), 0, 5);
+  S.AI依賴 = Math.max(0, (S.AI依賴 ?? 0) - 0.1); // 一段時間沒靠 AI，就慢慢回來
 
   /* 打工：每回合都要付出體力與讀書時間 */
   if (st.flags.打工中) { S.體力 = clamp(S.體力 - 1, 5, 100); S.理解 = clamp(S.理解 - 0.15 * len, 0, 100); }
@@ -160,8 +166,6 @@ export function applyHabits(st, data, tl, r) {
     S.睡眠債 = clamp(S.睡眠債 - 0.3, 0, 10); S.專注 = clamp(S.專注 + 1, 15, 100);
     S.聯繫 = clamp(S.聯繫 - 0.1, 0, 100); S.牽掛 = clamp(S.牽掛 - 0.1, 0, 10);
   }
-  /* 家規：限制手機的期間，手機等級被壓住 */
-  if (st.rule && st.turn < st.rule.until && H.手機 > st.rule.cap) H.手機 = st.rule.cap;
   S.幸福 = clamp(S.幸福 + 0.02 * ((S.親子 ?? 50) - 50), 0, 100);
   S.親子 = clamp((S.親子 ?? 50) + (50 - (S.親子 ?? 50)) * 0.02, 0, 100);
 

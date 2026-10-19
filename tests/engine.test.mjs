@@ -475,10 +475,14 @@ test('家規：parentRule 與家長風格相關；接受規定後手機等級被
   st.turn = 3;
   applyChoice(st, data, card, 0, buildCtx(st, data.timeline[3]), r, 3);
   assert.ok(st.rule && st.rule.cap === 2 && st.rule.until === 11);
-  startTurn(st, data);
-  assert.equal(st.habits.手機, 2);
-  finishTurn(st, data);
-  st.turn = 12; st.habits.手機 = 4;
+  // 家規期間：效果照 2 級算，但不改掉玩家自己的設定
+  const capped = JSON.parse(JSON.stringify(st)), free = JSON.parse(JSON.stringify(st));
+  free.rule = null;
+  startTurn(capped, data); startTurn(free, data);
+  assert.equal(capped.habits.手機, 4);
+  assert.ok(capped.stats.聯繫 < free.stats.聯繫, '家規期間手機效果應該被壓低');
+  // 期滿後恢復
+  st.turn = 12;
   startTurn(st, data);
   assert.equal(st.habits.手機, 4);
 });

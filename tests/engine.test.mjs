@@ -8,8 +8,13 @@ import { newState, serialize, deserialize } from '../js/engine/state.js';
 import { stateRng, pick } from '../js/engine/rng.js';
 import { compile, evalCond, VISIBLE_KEYS } from '../js/engine/events.js';
 import { lifeProbTable, turnProb, DEATH_LINE } from '../js/engine/life.js';
+import { buildCtx, passes, describeCard, applyChoice } from '../js/engine/events.js';
+import { applyHabits } from '../js/engine/turn.js';
 import { buildEnding } from '../js/engine/report.js';
 import { N_PEERS, stepPeers } from '../js/engine/peers.js';
+import { tutorCap, tutorMaxLevel, famStep, shockOf, effectiveEcon } from '../js/engine/family.js';
+import { avatarSVG, avatarSpec, avatarOptsFromState, isCompletePalette } from '../js/engine/avatar.js';
+import { generateIdentity } from '../js/engine/identity.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const rd = (f) => JSON.parse(readFileSync(join(root, 'data', f), 'utf8'));
@@ -142,7 +147,11 @@ test('條件求值器：不用 eval，語法正確', () => {
   assert.throws(() => compile("process.exit()"));
 });
 
-test('事件卡資料檢查：至少 14 張、每個選項都有看得見的好處、延遲事件存在', () => {
+const BAD_UP = new Set(['睡眠債', '牽掛', '露餡']);
+const hasCost = (ch) => Object.values(ch.effects || {}).some((v) => v < 0) || !!ch.cost || !!(ch.delayed && ch.delayed.length)
+  || Object.entries(ch.hidden || {}).some(([k, v]) => (BAD_UP.has(k) ? v > 0 : v < 0));
+
+test('事件卡資料檢查：每個選項都有好處也有代價；至少 14 張、每個選項都有看得見的好處、延遲事件存在', () => {
   const cards = data.events.cards;
   assert.ok(cards.length >= 14);
   const ids = new Set(cards.map((c) => c.id));
@@ -156,6 +165,7 @@ test('事件卡資料檢查：至少 14 張、每個選項都有看得見的好�
       const eff = ch.effects || {};
       assert.ok(Object.keys(eff).every((k) => VISIBLE_KEYS.includes(k)), `${c.id}: 看得見的效果只能用 ${VISIBLE_KEYS}`);
       assert.ok(Object.entries(eff).some(([, v]) => v > 0), `${c.id} / ${ch.label} 沒有看得見的好處`);
+      if (!c.noCostOk) assert.ok(hasCost(ch), `${c.id} / ${ch.label} 沒有任何代價（看得見、隱藏或延遲）`);
       for (const d of ch.delayed || []) assert.ok(ids.has(d.event), `${c.id} → ${d.event}`);
       for (const g of [].concat(ch.grayIf || [])) { compile(g.if); assert.ok(g.reason); }
     }
@@ -216,4 +226,263 @@ test('身分：姓名、座號、縣市、學校、家庭、通勤都由種子�
     seen.add(id.commute);
   }
   assert.ok(seen.size >= 5);
+});
+
+test('像素小人：身分外貌由種子決定，名字依性別', () => {
+  const idn = data.identities;
+  assert.ok(idn.givenNamesM.length >= 25 && idn.givenNamesF.length >= 25);
+  let girlsSkirt = 0, girls = 0, glasses = 0;
+  for (let seed = 1; seed <= 400; seed++) {
+    const a = generateIdentity(seed, idn), b = generateIdentity(seed, idn);
+    assert.deepEqual(a, b);
+    assert.ok(a.sex === '男' || a.sex === '女');
+    const given = a.name.slice(1);
+    assert.ok((a.sex === '男' ? idn.givenNamesM : idn.givenNamesF).includes(given));
+    if (a.sex === '男') assert.equal(a.bottom, '長褲');
+    else { girls++; if (a.bottom === '裙') girlsSkirt++; }
+    if (a.glasses) glasses++;
+    assert.ok(a.hair >= 0 && a.hair < 3 && idn.avatar.skins[a.skin] && idn.avatar.hairColors[a.hairColor]);
+    assert.ok(idn.uniforms[a.schoolKey]);
+  }
+  assert.ok(girlsSkirt / girls > 0.65 && girlsSkirt / girls < 0.85);
+  assert.ok(glasses / 400 > 0.25 && glasses / 400 < 0.45);
+});
+
+test('像素小人：每所學校都有完整制服與運動服調色盤，且彼此不同', () => {
+  const idn = data.identities;
+  const names = idn.schools.flatMap((s) => s.names);
+  for (const n of names) assert.ok(isCompletePalette(idn.uniforms[n]), n);
+  const sigs = new Set(names.map((n) => JSON.stringify(idn.uniforms[n])));
+  assert.equal(sigs.size, names.length);
+});
+
+test('像素小人：avatarSVG 為純函式，輸出隨學校與狀態改變', () => {
+  const idn = data.identities;
+  const id = generateIdentity(7, idn);
+  const spec = avatarSpec(id, idn, 7);
+  const svg = avatarSVG(spec, { outfit: 'uniform' });
+  assert.ok(svg.startsWith('<svg'));
+  assert.ok(svg.includes('shape-rendering="crispEdges"') && svg.includes('viewBox="0 0 16 24"'));
+  assert.equal(svg, avatarSVG(spec, { outfit: 'uniform' }));
+  const other = { ...spec, uniform: idn.uniforms[Object.keys(idn.uniforms).find((k) => k !== id.schoolKey)] };
+  assert.notEqual(svg, avatarSVG(other, { outfit: 'uniform' }));
+  for (const o of [{ outfit: 'pe' }, { outfit: 'casual' }, { frame: 1 }, { tired: true }, { phone: true, glow: true }, { mood: 'happy' }, { mood: 'sad' }, { bandage: true }, { gaming: true, sweat: true, backpack: true, hw: 'chat' }, { hw: 'paper', slouch: true }]) {
+    const v = avatarSVG(spec, o);
+    assert.ok(v.startsWith('<svg') && v !== svg, JSON.stringify(o));
+  }
+  const dead = avatarSVG(spec, { dead: true });
+  assert.ok(dead.includes('opacity="0.5"') && dead.includes('feColorMatrix'));
+  for (let seed = 1; seed <= 100; seed++) {
+    const i2 = generateIdentity(seed, idn);
+    assert.ok(avatarSVG(avatarSpec(i2, idn, seed), {}).startsWith('<svg'));
+  }
+  const st = newState(3, data);
+  const o = avatarOptsFromState(st, data.timeline[0]);
+  assert.equal(o.outfit, 'uniform');
+  assert.equal(avatarOptsFromState(st, { vacation: true }).outfit, 'casual');
+});
+
+test('家境：補習科數受家裡負擔上限限制，衝擊使上限下降、到期後恢復', () => {
+  const find = (econ) => { for (let s = 1; s < 2000; s++) { const st = newState(s, data); if (st.identity.family.econ === econ) return st; } };
+  for (const [econ, cap, maxLv] of [['寬裕', 3, 3], ['小康', 2, 2], ['吃緊', 0, 1]]) {
+    const st = find(econ);
+    assert.equal(tutorCap(st), cap);
+    assert.equal(tutorMaxLevel(st), maxLv);
+    st.habits.補習 = 3;
+    const res = startTurn(st, data);
+    assert.equal(st.habits.補習, maxLv, econ);
+    if (maxLv < 3) assert.ok(res.tl && st.cur.lines.some((l) => l.text.includes('補習先停一科')));
+    finishTurn(st, data);
+  }
+  const st = find('寬裕');
+  st.fam = { shock: { id: 'unemployed', from: 0, until: 3 } };
+  assert.equal(effectiveEcon(st), '小康');
+  assert.equal(tutorCap(st), 2);
+  st.habits.補習 = 3;
+  startTurn(st, data);
+  assert.equal(st.habits.補習, 2);
+  finishTurn(st, data);
+  st.turn = 3;
+  const tl = data.timeline[3];
+  const out = famStep(st, data, tl);
+  assert.equal(shockOf(st), null);
+  assert.ok(out.lines.length === 1);
+  assert.equal(tutorCap(st), 3);
+  const g = find('小康');
+  g.fam = { shock: { id: 'promo', from: 0, until: 9 } };
+  assert.equal(tutorCap(g), 3);
+});
+
+test('家境衝擊：頻率適中、可重現，且伴隨有選項的卡片', () => {
+  let total = 0, seeds = 0;
+  for (let seed = 1; seed <= 60; seed++) {
+    const st = newState(seed, data);
+    let n = 0;
+    while (!st.ended) {
+      const res = startTurn(st, data);
+      if (st.fam && st.fam.shock && st.fam.shock.from === st.turn) { n++; assert.ok(res.card && res.card.id.startsWith('fam_') || st.delayed.some((d) => d.event.startsWith('fam_'))); }
+      if (res.card) chooseCard(st, data, res.card.choices.find((c) => !c.disabled).i);
+      finishTurn(st, data);
+      if (st.dead) break;
+    }
+    total += n; seeds++;
+  }
+  const avg = total / seeds;
+  assert.ok(avg > 0.5 && avg < 3.5, `平均每局 ${avg} 次`);
+});
+
+test('錢包：低錢包時風險卡權重上升、誘惑卡被擋；高錢包相反', () => {
+  const st = newState(5, data), tl = data.timeline[4];
+  const weight = (id, wallet) => {
+    st.stats.錢包 = wallet;
+    const c = data.cardIndex[id], ctx = buildCtx(st, tl);
+    if (!passes(c, st, ctx)) return 0;
+    return (c.weight ?? 1) * (c.modifiers || []).reduce((x, m) => (evalCond(m.if, ctx) ? x * m.x : x), 1);
+  };
+  for (const id of ['high_pay_job', 'money_borrow']) {
+    assert.ok(weight(id, 50) > weight(id, 250) && weight(id, 250) > 0, id);
+    assert.equal(weight(id, 3500), 0, id);
+  }
+  for (const id of ['tempt_gacha', 'tempt_boba', 'tempt_shoes', 'tempt_treat']) {
+    assert.equal(weight(id, 100), 0, id);
+    assert.ok(weight(id, 4000) > weight(id, 2000) && weight(id, 2000) > 0, id);
+  }
+  assert.ok(weight('haohao_treat', 100) >= weight('haohao_treat', 3000));
+  // 有 cost 的社交選項在錢包不夠時被灰掉
+  st.stats.錢包 = 100;
+  const ctx = buildCtx(st, tl);
+  const view = describeCard(data.cardIndex.karaoke_invite, st, ctx);
+  assert.ok(view.choices[0].disabled && view.choices[0].reason === '錢包不夠');
+  // 錢包低迷時心情每回合 −1
+  const a = newState(9, data), b = newState(9, data);
+  a.stats.錢包 = 0; b.stats.錢包 = 5000; a.habits.手機 = 0; b.habits.手機 = 0;
+  const m = (s) => { applyHabits(s, data, data.timeline[1], stateRng(s)); return s.stats.心情; };
+  assert.ok(m(b) > m(a));
+});
+
+function gameShare(level, seeds = 12, dropAt = null) {
+  let turns = 0, hits = 0, late = 0, lateTurns = 0;
+  for (let seed = 1; seed <= seeds; seed++) {
+    const st = newState(seed, data);
+    while (!st.ended && !st.dead) {
+      st.habits.遊戲 = dropAt !== null && st.turn >= dropAt ? 0 : level;
+      const res = startTurn(st, data);
+      const g = res.card && res.card.id.startsWith('game_');
+      turns++; if (g) hits++;
+      if (dropAt !== null && st.turn >= dropAt + 5) { lateTurns++; if (g) late++; }
+      if (res.card) chooseCard(st, data, res.card.choices.find((c) => !c.disabled && !c.label.startsWith('這次先不')).i);
+      finishTurn(st, data);
+    }
+  }
+  return { share: hits / turns, late: lateTurns ? late / lateTurns : 0 };
+}
+
+test('手遊牽引：高等級時遊戲卡明顯變多；降到 0 後數回合內退光', () => {
+  const hi = gameShare(3).share, lo = gameShare(0).share, one = gameShare(1).share;
+  assert.equal(lo, 0);
+  assert.ok(hi > 0.3 && hi > one && one > 0.1, `hi=${hi} one=${one}`);
+  const q = gameShare(3, 12, 20);
+  assert.ok(q.late < 0.02, `退出後仍有遊戲卡 ${q.late}`);
+});
+
+test('連續婉拒手遊邀約三次，出現公會的提問', () => {
+  const st = newState(2, data);
+  st.habits.遊戲 = 3;
+  const lines = [];
+  for (let i = 0; i < 60 && lines.length < 1 && !st.ended; i++) {
+    const res = startTurn(st, data);
+    if (res.card && res.card.id.startsWith('game_')) {
+      chooseCard(st, data, res.card.choices.find((c) => c.label.startsWith('這次先不')).i);
+      for (const l of st.cur.lines) if (l.text.includes('公會的人問你是不是不玩了')) lines.push(l.text);
+    } else if (res.card) chooseCard(st, data, res.card.choices.find((c) => !c.disabled).i);
+    finishTurn(st, data);
+  }
+  assert.equal(lines.length, 1);
+  assert.ok(st.gameDecline >= 3);
+});
+
+test('零用錢：投資報酬可重現、帳戶不為負；存下／投資讓花錢的社交選項更難負擔', () => {
+  const run = (seed) => {
+    const st = newState(seed, data);
+    st.habits.零用錢 = '投資';
+    const bal = [];
+    while (!st.ended && !st.dead) {
+      const res = startTurn(st, data);
+      if (res.card) chooseCard(st, data, res.card.choices.find((c) => !c.disabled).i);
+      finishTurn(st, data);
+      bal.push(st.stats.投資);
+      assert.ok(st.stats.投資 >= 0 && st.stats.錢包 >= 0 && st.stats.投資本金 >= 0);
+    }
+    return bal;
+  };
+  const a = run(4), b = run(4), c = run(5);
+  assert.deepEqual(a, b);
+  assert.notDeepEqual(a, c);
+  assert.ok(a[a.length - 1] > 0);
+  const st = newState(5, data);
+  const ctx = buildCtx(st, data.timeline[4]);
+  st.stats.錢包 = 400;
+  const dis = (mode) => { st.habits.零用錢 = mode; return describeCard(data.cardIndex.karaoke_invite, st, ctx).choices[0]; };
+  assert.equal(dis('花掉').disabled, false);
+  assert.equal(dis('存下').disabled, true);
+  assert.equal(dis('存下').reason, '想存錢');
+  assert.equal(dis('投資').disabled, true);
+  // 花掉 → 錢包偏低；存下 → 錢包累積
+  const wallet = (mode) => { const s2 = newState(7, data); s2.habits.零用錢 = mode; for (let i = 0; i < 20; i++) { startTurn(s2, data); finishTurn(s2, data); } return s2.stats.錢包; };
+  assert.ok(wallet('存下') > wallet('花掉'));
+});
+
+test('代價規則：每個打工選項都有體力、理解、睡眠債的代價；AI 解釋觀念也有依賴代價', () => {
+  for (const c of data.events.cards) for (const ch of c.choices) {
+    if ((ch.setFlags || []).includes('打工中')) {
+      assert.ok((ch.effects.體力 ?? 0) < 0, `${c.id}/${ch.label} 體力`);
+      assert.ok((ch.hidden?.理解 ?? 0) < 0, `${c.id}/${ch.label} 理解`);
+      assert.ok((ch.hidden?.睡眠債 ?? 0) > 0, `${c.id}/${ch.label} 睡眠債`);
+    }
+  }
+  const ai = data.cardIndex.ai_homework;
+  for (const ch of ai.choices) if (ch.label.includes('AI')) assert.ok(ch.hidden.AI依賴 > 0, ch.label);
+  const explain = ai.choices.find((c) => c.label.startsWith('請 AI 解釋'));
+  const direct = ai.choices.find((c) => c.label.startsWith('讓 AI 直接'));
+  assert.ok(explain.hidden.AI依賴 < direct.hidden.AI依賴);
+});
+
+test('AI 依賴高時理解成長變慢，「考試沒有 AI」卡可以出現', () => {
+  const a = newState(3, data), b = newState(3, data);
+  b.stats.AI依賴 = 3;
+  for (let i = 0; i < 6; i++) for (const s of [a, b]) { startTurn(s, data); finishTurn(s, data); }
+  assert.ok(a.stats.理解 > b.stats.理解);
+  const st = newState(3, data);
+  st.stats.AI依賴 = 3;
+  const c = data.cardIndex.ai_exam_stuck;
+  assert.ok(passes(c, st, buildCtx(st, data.timeline[4])));
+  st.stats.AI依賴 = 0;
+  assert.ok(!passes(c, st, buildCtx(st, data.timeline[4])));
+});
+
+test('家規：parentRule 與家長風格相關；接受規定後手機等級被壓在上限，到期後解除', () => {
+  const cnt = { 高期待: { 嚴格: 0, 普通: 0, 不太管: 0 }, 自顧不暇: { 嚴格: 0, 普通: 0, 不太管: 0 } };
+  for (let s = 1; s <= 600; s++) {
+    const id = generateIdentity(s, data.identities);
+    if (cnt[id.family.style]) cnt[id.family.style][id.parentRule]++;
+    assert.ok(['嚴格', '普通', '不太管'].includes(id.parentRule));
+  }
+  assert.ok(cnt.高期待.嚴格 > cnt.高期待.不太管 && cnt.自顧不暇.不太管 > cnt.自顧不暇.嚴格);
+  const st = newState(8, data);
+  st.habits.手機 = 4;
+  const card = data.cardIndex.phone_rule;
+  const r = stateRng(st);
+  st.turn = 3;
+  applyChoice(st, data, card, 0, buildCtx(st, data.timeline[3]), r, 3);
+  assert.ok(st.rule && st.rule.cap === 2 && st.rule.until === 11);
+  // 家規期間：效果照 2 級算，但不改掉玩家自己的設定
+  const capped = JSON.parse(JSON.stringify(st)), free = JSON.parse(JSON.stringify(st));
+  free.rule = null;
+  startTurn(capped, data); startTurn(free, data);
+  assert.equal(capped.habits.手機, 4);
+  assert.ok(capped.stats.聯繫 < free.stats.聯繫, '家規期間手機效果應該被壓低');
+  // 期滿後恢復
+  st.turn = 12;
+  startTurn(st, data);
+  assert.equal(st.habits.手機, 4);
 });

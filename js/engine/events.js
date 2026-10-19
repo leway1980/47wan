@@ -118,6 +118,7 @@ export function buildCtx(st, tl) {
     ...s,
     手機: h.手機, 睡前手機: h.睡前手機 ? 1 : 0, 補習: h.補習, 運動: h.運動, 遊戲: h.遊戲, 作業: h.作業, 課堂: h.課堂,
     經濟: id.family.econ, 支援: id.family.support, 學校: id.schoolType, 通勤: id.commute,
+    家規: id.parentRule || '普通', 手機上限中: !!(st.rule && st.turn < st.rule.until), AI依賴: s.AI依賴 ?? 0, 親子: s.親子 ?? 50,
     地區: id.tier, 職業: id.family.job, 風格: id.family.style,
     年級: tl ? tl.year : 1, 學期: tl ? (tl.seg === '上學期' ? 1 : tl.seg === '下學期' ? 2 : 0) : 1,
     回合: st.turn, 假期: tl ? !!tl.vacation : false, 考試週: examNow,
@@ -127,7 +128,7 @@ export function buildCtx(st, tl) {
 /* ───────────── 效果 ───────────── */
 const RANGE = {
   專注: [0, 100], 理解: [0, 100], 體力: [0, 100], 聯繫: [0, 100], 知心: [0, 5], 心情: [0, 100], 幸福: [0, 100],
-  錢包: [0, 1e9], 睡眠債: [0, 10], 牽掛: [0, 10], 假熟悉: [0, 30], 班級氣氛: [0, 1], 興趣: [0.8, 1.2], 露餡: [0, 10],
+  錢包: [0, 1e9], 投資: [0, 1e9], 投資本金: [0, 1e9], 睡眠債: [0, 10], 牽掛: [0, 10], 假熟悉: [0, 30], 班級氣氛: [0, 1], 興趣: [0.8, 1.2], 露餡: [0, 10], AI依賴: [0, 10], 親子: [0, 100], 資訊: [0, 100],
 };
 export const VISIBLE_KEYS = ['心情', '聯繫', '知心', '體力', '錢包', '分數'];
 
@@ -188,7 +189,7 @@ export function drawCard(st, data, ctx, r) {
 /* ───────────── 把卡片轉成顯示用資料 ───────────── */
 export function fill(text, st) {
   const friend = st.peers.known[0]?.name || '同學';
-  return text.replace(/\{同學\}/g, friend).replace(/\{姓名\}/g, st.identity.name);
+  return text.replace(/\{家長\}/g, st.identity.family.parent || '家長').replace(/\{同學\}/g, friend).replace(/\{姓名\}/g, st.identity.name);
 }
 
 export function choiceState(ch, st, ctx) {
@@ -197,6 +198,8 @@ export function choiceState(ch, st, ctx) {
     for (const g of [].concat(ch.grayIf)) if (evalCond(g.if, ctx)) { disabled = true; reason = g.reason; break; }
   }
   if (!disabled && ch.cost && st.stats.錢包 < ch.cost) { disabled = true; reason = '錢包不夠'; }
+  // 想存錢／投資時，花錢的社交選項要多留一倍的餘裕才肯花（不是硬擋，錢多就能付）
+  if (!disabled && ch.cost && (st.habits.零用錢 || '花掉') !== '花掉' && st.stats.錢包 < ch.cost * 2) { disabled = true; reason = '想存錢'; }
   return { disabled, reason };
 }
 
@@ -206,6 +209,9 @@ export function describeCard(card, st, ctx) {
     choices: card.choices.map((ch, i) => {
       const { disabled, reason } = choiceState(ch, st, ctx);
       const chips = Object.entries(ch.effects || {}).filter(([, v]) => v !== 0).map(([k, v]) => ({ k, dir: v > 0 ? 1 : -1 }));
+      if (ch.cost && !(ch.effects && ch.effects.錢包)) chips.push({ k: '錢包', dir: -1 });
+      // 隱藏效果或延遲事件只露出「有後續」，不洩漏內容
+      if ((ch.hidden && Object.keys(ch.hidden).length) || (ch.delayed && ch.delayed.length)) chips.push({ k: '？後續', dir: 0 });
       return { i, label: ch.label, note: ch.note || '', chips, disabled, reason };
     }),
   };
@@ -218,6 +224,11 @@ export function applyChoice(st, data, card, idx, ctx, r, turnNo) {
   const gs = choiceState(ch, st, ctx);
   if (gs.disabled) throw new Error(`選項不可選: ${card.id}#${idx} (${gs.reason})`);
   if (ch.cost) st.stats.錢包 -= ch.cost;
+  if (ch.cost && (st.habits.零用錢 || '花掉') !== '花掉') addStat(st, '心情', -1); // 花下去會心疼
+  if (ch.phoneCap) st.rule = { cap: ch.phoneCap.cap, until: turnNo + ch.phoneCap.turns, label: ch.phoneCap.label || null };
+  if (ch.investMul) { st.stats.投資 *= ch.investMul; }
+  if (ch.sellInvest) { st.stats.錢包 += st.stats.投資; st.stats.投資 = 0; st.stats.投資本金 = 0; }
+  if (ch.toInvest) { st.stats.投資 += ch.toInvest; st.stats.投資本金 += ch.toInvest; } // 錢已由 effects 的 錢包 扣除
   applyEffects(st, ch.effects);
   applyEffects(st, ch.hidden);
   for (const f of ch.setFlags || []) st.flags[f] = true;
@@ -226,10 +237,16 @@ export function applyChoice(st, data, card, idx, ctx, r, turnNo) {
   if (ch.addHabits) for (const [k, d] of Object.entries(ch.addHabits)) st.habits[k] = clamp(st.habits[k] + d, 0, k === '補習' ? 3 : 4);
   if (ch.setCommute) st.identity.commute = ch.setCommute;
   for (const d of ch.delayed || []) {
-    if (r() < d.chance) st.delayed.push({ event: d.event, due: turnNo + d.after[0] + Math.floor(r() * (d.after[1] - d.after[0] + 1)) });
+    const hit = r() < d.chance * (d.event === 'fam_scholarship' ? 0.8 + 0.4 * ((st.stats.親子 ?? 50) / 100) : 1);
+    const ev = hit ? d.event : d.else;
+    const due = turnNo + d.after[0] + Math.floor(r() * (d.after[1] - d.after[0] + 1));
+    if (ev) st.delayed.push({ event: ev, due });
   }
+  if (card.pool === '遊戲') st.gameDecline = ch.declineGame ? (st.gameDecline || 0) + 1 : 0;
+  let extra = '';
+  if (ch.declineGame && st.gameDecline % 3 === 0) extra = '公會的人問你是不是不玩了。';
   if (card.once) st.used[card.id] = true;
   if (card.cooldown) st.cooldowns[card.id] = turnNo + card.cooldown + 1;
-  st.choices.push({ turn: turnNo, id: card.id, title: card.title, label: ch.label, commute: ch.setCommute || null });
-  return { line: ch.result ? fill(ch.result, st) : '' };
+  st.choices.push({ turn: turnNo, id: card.id, title: card.title, label: ch.label, commute: ch.setCommute || null, spend: !!ch.spend });
+  return { line: [ch.result ? fill(ch.result, st) : '', extra].filter(Boolean).join(' ') };
 }

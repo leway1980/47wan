@@ -30,8 +30,11 @@ export function rollSchool(r, idn, county) {
 
 export function generateIdentity(seed, idn) {
   const r = mulberry32((seed ^ 0x51ed270b) >>> 0);
-  const surname = pick(r, idn.surnames);
-  const given = pick(r, idn.givenNames);
+  const surname = pickWeighted(r, idn.surnames.map((n, k) => ({ n, w: idn.surnameW[k] })), (x) => x.w).n;
+  // 外貌用獨立亂數流，不影響其他抽籤；性別先決定，名字依性別挑
+  const ra = mulberry32((seed ^ 0x7a3c91d5) >>> 0);
+  const sex = ra() < 0.5 ? '男' : '女';
+  const given = pick(r, sex === '男' ? idn.givenNamesM : idn.givenNamesF);
   const county = pickWeighted(r, idn.counties, (c) => c.w);
   const district = pick(r, county.districts);
   const seat = randInt(r, 1, 35);
@@ -40,8 +43,23 @@ export function generateIdentity(seed, idn) {
   const fam = rollFamily(r, idn, county);
   const style = pick(r, idn.styles);
   const commute = rollCommute(r, idn, county, fam.econ);
+  const av = idn.avatar;
+  const look = {
+    bottom: sex === '男' ? '長褲' : (ra() < 0.75 ? '裙' : '長褲'),
+    hair: Math.floor(ra() * 3),
+    hairColor: pickWeighted(ra, av.hairColors.map((c, i) => ({ i, w: av.hairColorW[i] })), (x) => x.w).i,
+    skin: pickWeighted(ra, av.skins.map((c, i) => ({ i, w: av.skinW[i] })), (x) => x.w).i,
+    glasses: ra() < 0.35,
+  };
+  const parent = ra() < 0.5 ? '爸爸' : '媽媽';
+  const W = { 高期待: [6, 3.5, 0.5], 支持: [2.5, 5.5, 2], 放任: [1, 3, 6], 自顧不暇: [0.5, 2.5, 7] }[style] || [2, 5, 3];
+  const parentRule = ['嚴格', '普通', '不太管'][pickWeighted(ra, W.map((w, i) => ({ i, w })), (x) => x.w).i];
+  const schoolKey = Object.keys(idn.uniforms).find((k) => school.startsWith(k)) || Object.keys(idn.uniforms)[0];
   return {
     name: surname + given,
+    sex,
+    ...look,
+    schoolKey,
     seat,
     county: county.name,
     district,
@@ -57,7 +75,9 @@ export function generateIdentity(seed, idn) {
       jobDesc: fam.job.desc,
       sleep: fam.job.sleep,
       style,
+      parent,
     },
+    parentRule,
     commute,
     commuteOrig: commute,
     info: idn.infoBySupport[fam.support],

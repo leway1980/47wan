@@ -5,7 +5,7 @@ import { genPeers, newPeerCounts } from './peers.js';
 
 export const SAVE_VERSION = 1;
 export const SAVE_KEY = 'wan47.save.v1';
-export const HABIT_DEFAULTS = { 手機: 2, 睡前手機: false, 補習: 0, 運動: 0, 作業: '紙本', 遊戲: 0, 課堂: '跟著上' };
+export const HABIT_DEFAULTS = { 零用錢: '花掉', 手機: 2, 睡前手機: false, 補習: 0, 運動: 0, 作業: '紙本', 遊戲: 0, 課堂: '跟著上' };
 export const HW_MODES = ['紙本', '上網查', '開群組邊寫邊聊'];
 export const CLASS_MODES = ['跟著上', '挑重點聽', '做自己的事', '放空', '補眠'];
 
@@ -18,7 +18,7 @@ export function newState(seed, data) {
   const r = mulberry32((seed ^ 0x2545f491) >>> 0);
   const stats = {
     專注: 72, 理解: 42 + gauss(r) * 3, 體力: 80, 聯繫: 30, 知心: 1, 心情: 55, 幸福: 55,
-    錢包: start.錢包, 睡眠債: 1, 牽掛: 0, 假熟悉: 0, 班級氣氛: 0.5, 興趣: 1.0, 資訊: identity.info, 露餡: 0,
+    錢包: start.錢包, AI依賴: 0, 親子: { 放任: 50, 支持: 65, 高期待: 45, 自顧不暇: 40 }[identity.family.style] ?? 50, 投資: 0, 投資本金: 0, 睡眠債: 1, 牽掛: 0, 假熟悉: 0, 班級氣氛: 0.5, 興趣: 1.0, 資訊: identity.info, 露餡: 0,
   };
   for (const [k, v] of Object.entries(school.mod)) {
     if (k === '班級氣氛') stats[k] = v;

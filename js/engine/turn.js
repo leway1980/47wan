@@ -1,5 +1,6 @@
 // 回合引擎：習慣 → 固定劇情 → 延遲佇列 → 人生事件 → 抽卡 → 選擇 → 同儕 → 紀錄。純函式、無 DOM。
-import { stateRng, rngAt, gauss, pickWeighted, clamp } from './rng.js';
+import { mulberry32, stateRng, rngAt, gauss, pickWeighted, clamp } from './rng.js';
+import { tutorMaxLevel, tutorIsFree, famStep } from './family.js';
 import { buildCtx, drawCard, describeCard, applyChoice, applyEffects, cardById, evalCond, compile, passes } from './events.js';
 import { checkLife, DEATH_LINE } from './life.js';
 import { stepPeers } from './peers.js';
@@ -63,20 +64,44 @@ const PHONE_FOCUS = [0, 0, 2, 5, 9];
 const PHONE_HAPPY = [-0.5, 0.3, 0.3, -0.2, -0.6];
 const COVER = { 自己就是資源: 0.4, 花錢買資源: 0.7, 自己找資源: 0 };
 
+const GAME_LINES = ['每日任務還沒解完，你先上線點一下。', '限時活動只剩三天，你又打開了遊戲。', '公會戰今晚八點，你一直看時間。', '登入送十抽，你捨不得不領。', '體力條滿了，你找理由再上去一下。', '朋友說副本差一個人，你的手已經在滑。'];
 export function applyHabits(st, data, tl, r) {
+  // 家規期間手機等級被壓住，但不改玩家自己的設定；期滿後自動恢復
+  const H = st.habits, own = H.手機;
+  if (st.rule && st.turn < st.rule.until) H.手機 = Math.min(own, st.rule.cap);
+  try { return applyHabitsInner(st, data, tl, r); } finally { H.手機 = own; }
+}
+function applyHabitsInner(st, data, tl, r) {
   const S = st.stats, H = st.habits, id = st.identity, idn = data.identities, fam = id.family;
   const vac = tl.vacation, len = vac ? 2 : 1;
   const lines = [];
   /* 錢 */
   const econ = idn.econStart[fam.econ];
-  const costPer = 600 * (1 - Math.min(0.9, COVER[fam.support] + { 寬裕: 0.3, 小康: 0.1, 吃緊: 0 }[fam.econ])) * len;
   const income = econ.allowance * len * (vac ? 0.8 : 1) + (st.flags.打工中 ? (vac ? 1800 : 900) : 0);
   const other = [0, 0, 80, 200][H.遊戲] * len + [0, 0, 0, 40, 80][H.手機] * len;
   const avail = S.錢包 + income;
-  let cram = H.補習;
-  while (cram > 0 && avail - cram * costPer - other < 0) cram--;
-  if (cram < H.補習) { H.補習 = cram; lines.push('錢包撐不住了，補習班先停掉了幾科。'); }
-  S.錢包 = Math.max(0, Math.round(avail - cram * costPer - other));
+  // 補習由家裡出錢（不從零用錢扣），科數受家境上限限制；上限 0 時只剩免費的學校課輔
+  let cram = Math.min(H.補習, tutorMaxLevel(st));
+  if (cram < H.補習) { H.補習 = cram; lines.push('家裡最近手頭緊，補習先停一科。'); }
+  // 零用錢怎麼用：花掉（吃喝玩樂）／存下／投資（定期定額，類似大盤 ETF 的簡化模型）
+  const mode = H.零用錢 || '花掉';
+  let w = Math.max(0, avail - other);
+  w -= Math.min(w, income * { 花掉: 0.6, 存下: 0.1, 投資: 0.1 }[mode]);
+  if ((S.投資 ?? 0) > 0) {
+    const rr = mulberry32((st.seed ^ Math.imul(st.turn + 7, 0x85ebca6b)) >>> 0);
+    const ret = 0.0027 + 0.035 * gauss(rr); // 約 +7%／年、波動約 18%／年，換算成兩週一回合
+    S.投資 = Math.max(0, S.投資 * (1 + ret));
+  }
+  if (mode === '投資') {
+    const x = Math.min(w, income * 0.8);
+    w -= x; S.投資 = (S.投資 ?? 0) + x; S.投資本金 = (S.投資本金 ?? 0) + x;
+    if (!st.flags.投資說明) { st.flags.投資說明 = true; lines.push('未成年要由家長協助開戶（例如定期定額 ETF）；遊戲數字是簡化的示意，不是投資建議。'); }
+  }
+  S.錢包 = Math.max(0, Math.round(w));
+  if (mode === '花掉') {
+    S.體力 = clamp(S.體力 - 0.5, 5, 100); // 手搖飲、零食（之後的體力結算會再混合，影響很小）
+    if (S.錢包 < 300 && rngAt(st.seed, st.turn, 'moneyend') < 0.3) { lines.push('月底又沒錢了，只能吃泡麵。'); S.心情 = clamp(S.心情 - 1, 0, 100); }
+  } else S.幸福 = clamp(S.幸福 + 0.3, 0, 100); // 戶頭有錢的安全感
 
   /* 時間：可自己運用的小時數 */
   const commH = vac ? 0 : idn.commuteHours[id.commute];
@@ -92,8 +117,8 @@ export function applyHabits(st, data, tl, r) {
   const classPart = vac ? 0 : 40 * focus * 0.35 * CLASS_F[H.課堂] * atmos * interest;
   const own = H.課堂 === '做自己的事' && !vac ? 3 : 0;
   const selfPart = (selfHours + own) * focus * HW_F[H.作業] * interest;
-  const cramPart = cram * 3.5 * focus * 0.4 * interest;
-  const learn = classPart + cramPart + selfPart;
+  const cramPart = cram * (tutorIsFree(st) ? 0.6 : 1) * 3.5 * focus * 0.4 * interest;
+  const learn = (classPart + cramPart + selfPart) * ((S.AI依賴 ?? 0) >= 1.5 ? 0.85 : 1); // 太依賴 AI，自己想的功夫變少
   const recov = st.recover > 0 ? 0.35 : 1;
   const gain = learn * 0.15 * (1 - S.理解 / 170) * recov;
   S.理解 = clamp(S.理解 + gain - S.理解 * 0.03 * len, 0, 100);
@@ -122,13 +147,40 @@ export function applyHabits(st, data, tl, r) {
   /* 心情（短期、跳動大）與幸福（長期、隱藏） */
   const mTarget = 50 + PHONE_MOOD[H.手機] + H.運動 * 3 - S.睡眠債 * 1.5 + (S.知心 - 2) * 2.5 + [0, 0, 1, 3][H.遊戲] + gauss(r) * 5 - cram * 2 + (st.flags.交往中 ? 6 : 0) - (S.體力 < 35 ? 5 : 0) - (tl.examWeek ? 4 : 0);
   S.心情 = clamp(0.4 * S.心情 + 0.6 * mTarget, 0, 100);
+  if (S.錢包 < 300) S.心情 = clamp(S.心情 - 1, 0, 100); // 月底沒錢的壓力
+  S.心情 = clamp(S.心情 + (mode === '花掉' ? 1 : -0.5), 0, 100);
+  if (mode !== '花掉') S.聯繫 = clamp(S.聯繫 - 0.3, 0, 100);
   const noise = 0.7 + 0.6 * r();
   const hDelta = 2 * (PHONE_HAPPY[H.手機] * noise + 0.2 * (S.知心 - 2) + 0.3 * H.運動 - 0.12 * (S.睡眠債 - 2) - 0.3 * Math.max(0, cram - 1) - 0.05 * S.牽掛 + (st.flags.交往中 ? 0.2 : 0) + (st.flags.社團中 ? 0.15 : 0));
   S.幸福 = clamp(S.幸福 + hDelta * len - (S.幸福 - 50) * 0.08, 0, 100);
 
   /* 人際 */
   S.聯繫 = clamp(S.聯繫 + (PHONE_LINK[H.手機] + (cram > 0 ? 0.5 : 0) + (st.flags.社團中 ? 1 : 0) + (H.遊戲 > 0 ? 0.5 : 0)) * len - (S.聯繫 - 15) * 0.12, 0, 100);
-  S.知心 = clamp(S.知心 + (S.聯繫 > 35 ? 0.04 : 0) + (st.flags.交往中 ? 0.03 : 0) - (S.知心 > 1 ? 0.07 : 0.02), 0, 5);
+  S.知心 = clamp(S.知心 + (S.聯繫 > 35 ? 0.06 : 0) + (st.flags.社團中 ? 0.02 : 0) + (st.flags.交往中 ? 0.03 : 0) - (S.知心 > 1 ? 0.07 : 0.02), 0, 5);
+  S.AI依賴 = Math.max(0, (S.AI依賴 ?? 0) - 0.1); // 一段時間沒靠 AI，就慢慢回來
+
+  /* 打工：每回合都要付出體力與讀書時間 */
+  if (st.flags.打工中) { S.體力 = clamp(S.體力 - 1, 5, 100); S.理解 = clamp(S.理解 - 0.15 * len, 0, 100); }
+  /* 手機過夜：放客廳充電的好處很小但會累積 */
+  if (!H.睡前手機) {
+    S.睡眠債 = clamp(S.睡眠債 - 0.3, 0, 10); S.專注 = clamp(S.專注 + 1, 15, 100);
+    S.聯繫 = clamp(S.聯繫 - 0.1, 0, 100); S.牽掛 = clamp(S.牽掛 - 0.1, 0, 10);
+  }
+  S.幸福 = clamp(S.幸福 + 0.02 * ((S.親子 ?? 50) - 50), 0, 100);
+  S.親子 = clamp((S.親子 ?? 50) + (50 - (S.親子 ?? 50)) * 0.02, 0, 100);
+
+  /* 手遊的「牽引」：降低手遊等級不會立刻停，要兩三個回合慢慢退；期間每週都被拉一下 */
+  st.pull = Math.max(H.遊戲, (st.pull ?? 0) - 0.75);
+  const lv = Math.min(3, Math.round(st.pull));
+  if (lv >= 1) {
+    for (let i = 0; i < 2; i++) {
+      lines.push(GAME_LINES[Math.floor(rngAt(st.seed, st.turn, 'gline' + i) * GAME_LINES.length)]);
+      S.牽掛 = clamp(S.牽掛 + 0.15 + 0.07 * lv, 0, 10);
+      S.專注 = clamp(S.專注 - 1, 15, 100);
+      S.理解 = clamp(S.理解 - 0.1 * lv, 0, 100);
+      S.心情 = clamp(S.心情 + 1, 0, 100);
+    }
+  }
   return lines;
 }
 
@@ -172,14 +224,24 @@ export function startTurn(st, data) {
   st.cur = cur;
   if (!tl.vacation && tl.idx === 0 && st.flags.打工中 && !st.flags.長期打工) delete st.flags.打工中; // 暑期打工結束
 
+  const fs = famStep(st, data, tl);
+  for (const l of fs.lines) cur.lines.push({ d: 1, text: l });
   for (const l of applyHabits(st, data, tl, r)) cur.lines.push({ d: 2, text: l });
+  if (tl.vacation && tl.seg === '寒假' && tl.idx === 0) { // 過年紅包：1,000–4,000，家境寬裕的給得多
+    const bonus = { 寬裕: 800, 小康: 0, 吃緊: -300 }[st.identity.family.econ];
+    const amt = Math.round((1000 + rngAt(st.seed, st.turn, 'angpao') * 2700 + bonus) / 100) * 100;
+    st.stats.錢包 += amt;
+    cur.lines.push({ d: 3, text: `過年收到紅包，一共 NT$${amt.toLocaleString('en-US')}。` });
+  }
 
   // 2. 固定劇情
   for (const f of tl.fixed) {
     if (f.kind === 'card') { if (!cur.card && !(st.used[f.event])) cur.card = cardById(data, f.event); }
     else runFixed(st, data, tl, f, r, cur);
   }
-  // 3. 延遲佇列
+  // 3. 延遲佇列（家庭變動的卡優先）
+  if (fs.cardId && !cur.card) cur.card = cardById(data, fs.cardId);
+  else if (fs.cardId) st.delayed.push({ event: fs.cardId, due: st.turn + 1 });
   if (!cur.card) {
     const k = st.delayed.findIndex((d) => d.due <= st.turn);
     if (k >= 0) { cur.card = cardById(data, st.delayed[k].event); st.delayed.splice(k, 1); }
@@ -192,6 +254,7 @@ export function startTurn(st, data) {
     if (o.death) { st.dead = true; st.deathTurn = st.turn; break; }
     applyEffects(st, o.effects); applyEffects(st, o.hidden);
     for (const f of o.flags || []) st.flags[f] = true;
+    if (o.sev && o.sev !== '開罰') st.flags.傷至 = st.turn + 2; // 小人身上的紗布會留一陣子
     if (o.recover) st.recover = Math.max(st.recover, o.recover);
     cur.lines.push({ d: 2, text: o.sev === '開罰' ? '無照騎車被警察攔下，開了罰單。' : `通勤途中發生事故（${o.sev}），需要好好休養。` });
   }
@@ -199,6 +262,12 @@ export function startTurn(st, data) {
   // 5. 一般抽卡
   const ctx = buildCtx(st, tl);
   cur.ctx = ctx;
+  // 手遊的邀約：牽引越強越常出現（約 1 級 25%、2–3 級 45–55%）；一回合仍最多一張
+  const gl = Math.min(3, Math.round(st.pull ?? 0));
+  if (!cur.card && gl >= 1 && rngAt(st.seed, st.turn, 'gamecard') < [0, 0.25, 0.45, 0.55][gl]) {
+    const pool = data.events.cards.filter((c) => c.pool === '遊戲' && (st.cooldowns[c.id] || -1) <= st.turn && passes(c, st, ctx));
+    if (pool.length) cur.card = pickWeighted(r, pool, (c) => c.weight ?? 1);
+  }
   if (!cur.card && r() < (tl.vacation ? 0.85 : 0.7)) cur.card = drawCard(st, data, ctx, r);
   cur.cardView = cur.card ? describeCard(cur.card, st, ctx) : null;
   return { tl, notices: cur.notices, card: cur.cardView, dead: false };
@@ -266,7 +335,7 @@ export function finishTurn(st, data) {
   st.hist.push({
     t: st.turn, 專注: +S.專注.toFixed(1), 睡眠債: +S.睡眠債.toFixed(2), 心情: +S.心情.toFixed(1), 幸福: +S.幸福.toFixed(1),
     理解: +S.理解.toFixed(1), 聯繫: +S.聯繫.toFixed(1), 知心: +S.知心.toFixed(2), 牽掛: +S.牽掛.toFixed(2), 體力: +S.體力.toFixed(1),
-    h: [H.手機, H.睡前手機 ? 1 : 0, H.補習, H.運動, H.遊戲], c: cur.cardTitle || null,
+    h: [H.手機, H.睡前手機 ? 1 : 0, H.補習, H.運動, H.遊戲, ['花掉', '存下', '投資'].indexOf(H.零用錢 || '花掉')], c: cur.cardTitle || null,
   });
   st.logs.push({ turn: st.turn, lines: sched });
   if (st.logs.length > 30) st.logs.shift();

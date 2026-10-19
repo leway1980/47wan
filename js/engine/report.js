@@ -24,19 +24,19 @@ const fmtPct = (p) => {
 
 /* ───────────── 去向 ───────────── */
 const DEPTS = {
-  自然組: ['電機工程系', '物理系', '資訊工程系', '化學系', '醫學檢驗系', '土木工程系'],
-  社會組: ['企業管理系', '法律系', '社會學系', '歷史系', '外國語文學系', '心理系'],
+  自然學群: ['電機工程系', '物理系', '資訊工程系', '化學系', '醫學檢驗系', '土木工程系'],
+  文法商學群: ['企業管理系', '法律系', '社會學系', '歷史系', '外國語文學系', '心理系'],
 };
 export function computeOutcome(st) {
   const s = st.final ?? st.gsat ?? st.stats.理解;
   const u = rngAt(st.seed, 99, 'final');
-  const group = st.flags.自然組 ? '自然組' : st.flags.社會組 ? '社會組' : st.stats.理解 >= 50 ? '自然組' : '社會組';
+  const group = st.flags.自然學群 ? '自然學群' : st.flags.文法商學群 ? '文法商學群' : st.stats.理解 >= 50 ? '自然學群' : '文法商學群';
   const dept = DEPTS[group][Math.floor(rngAt(st.seed, 98, 'dept') * DEPTS[group].length)];
   let type;
-  if (s >= 64) type = '國立大學';
-  else if (s >= 50) type = u < 0.2 + ((s - 50) / 14) * 0.5 ? '國立大學' : '私立大學';
-  else if (s >= 36) type = u < 0.6 ? '私立大學' : '科技大學';
-  else type = u < 0.45 ? '重考一年' : '科技大學';
+  if (s >= 57) type = '國立大學';
+  else if (s >= 44) type = u < 0.2 + ((s - 44) / 13) * 0.5 ? '國立大學' : '私立大學';
+  else if (s >= 30) type = u < 0.6 ? '私立大學' : '科技大學';
+  else type = u < 0.35 ? '重考一年' : '科技大學';
   const retake = type === '重考一年';
   const text = retake ? '這次沒有上到想去的學校，你決定重考一年。' : `你錄取了${type}的${dept}。`;
   return { type, dept, group, retake, text, score: Math.round(s) };
@@ -222,7 +222,7 @@ export function buildEnding(st, data) {
   const chosen = [];
   const drawn = [];
   if (hs.length) {
-    chosen.push(`手機習慣平均「${HAB_PHONE[Math.round(a.phone)]}」，其中 ${bedTurns} 個回合睡前還在滑`);
+    chosen.push(`手機習慣平均「${HAB_PHONE[Math.round(a.phone)]}」，其中 ${bedTurns} 個回合手機帶進房間過夜（其餘放客廳充電）`);
     chosen.push(`補習平均 ${a.cram.toFixed(1)} 科、運動平均 ${a.sport.toFixed(1)} 級、遊戲平均 ${a.game.toFixed(1)} 級`);
     chosen.push(`寫作業的方式最後是「${st.habits.作業}」，上課投入是「${st.habits.課堂}」`);
   }
@@ -274,12 +274,17 @@ export function buildEnding(st, data) {
   }
   const o = st.outcome || computeOutcome(st, data);
   const k = pickArchetype(st, a);
+  const spends = st.choices.filter((c) => c.spend).length;
+  const nMode = (m) => hs.filter((h) => h.h[5] === m).length;
+  const moneyLine = nMode(2) >= 36 && (S.投資 ?? 0) > 0 ? '高中開始的定期定額，到 30 歲變成一筆不小的存款。'
+    : spends >= 2 || nMode(0) >= 50 ? '你的錢包常常月底歸零，但朋友很多，回憶也很多。'
+      : nMode(1) >= 36 || (S.錢包 >= 3000 && spends === 0) ? '你存下了人生的第一筆錢，那是高中時一點一滴留下來的。' : '';
   const txt = archetypeText(k, { name: id.name, friend, school: id.school, o, dept: o.dept, county: id.county });
   return {
     archetype: k, tag: txt.tag, line: txt.line, header, dead: false, outcome: o,
     sections: [
       { age: '18 歲', text: txt.a18 }, { age: '22 歲', text: txt.a22 },
-      { age: '25 歲', text: txt.a25 }, { age: '30 歲', text: txt.a30 },
+      { age: '25 歲', text: txt.a25 + moneyLine }, { age: '30 歲', text: txt.a30 },
     ],
     good: txt.good, regret: txt.regret, curves, chosenDrawn: { chosen, drawn }, whatIf,
     reveal: `你的心情平均 ${mean(hs.map((h) => h.心情)).toFixed(0)}，真實幸福平均 ${mean(hs.map((h) => h.幸福)).toFixed(0)}。短期開心和長期過得好，不一定是同一條線。`,

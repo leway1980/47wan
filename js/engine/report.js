@@ -86,11 +86,14 @@ export function semesterReport(st, data, tl) {
     injured ? `這學期有 ${injured} 人在通勤途中受傷` : '這學期同屆沒有太大的通勤事故消息',
   ];
   st.peerSnap = { ...pcu };
+  // 這學期（10 個回合）內留下的路人消息，新的在前、最多 3 則；舊的清掉
+  const feed = (st.peerFeed || []).filter((f) => f.turn > tl.turn - 10 && f.turn <= tl.turn).reverse().slice(0, 3).map((f) => f.text);
+  st.peerFeed = (st.peerFeed || []).filter((f) => f.turn > tl.turn);
   const days = COMMUTE_DAYS_PER_TURN * 10;
   const commuteLine = commuteSentence(st, data, days);
   return {
     title: `${GRADE[tl.year - 1]}${tl.seg}`,
-    phrases, schoolLine, peerLines, commuteLine,
+    phrases, schoolLine, peerLines, commuteLine, feed,
     quiz: { topic: quizTopic, question: `猜猜看：同屆有多少 % 的人在${quizTopic}？`, answer },
     peerHead: '這學期，跟你同屆的 1,000 人裡：',
   };
@@ -271,7 +274,7 @@ export function buildEnding(st, data) {
     if (h.h[1] || h.睡眠債 >= 4) tip = '也許可以試試睡前把手機放到客廳充電。';
     else if (h.h[4] >= 2) tip = '也許可以試試把遊戲少一級，看專注會不會回來。';
     else if (h.h[2] >= 2) tip = '也許可以試試少補一科，把時間留給自己寫題。';
-    whatIf = `${turnLabel(tl)}（${formatDate(tl.start)}），你的專注從 ${p.專注.toFixed(0)} 掉到 ${h.專注.toFixed(0)}，是三年來掉最多的一次。那時你的狀態是：${bits.join('、')}${h.c ? `，剛好遇到「${h.c}」` : ''}。也許跟這有關。${tip}`;
+    whatIf = `${turnLabel(tl)}（${formatDate(tl.start)}），你的專注從 ${p.專注.toFixed(0)} 掉到 ${h.專注.toFixed(0)}，是三年來掉最多的一次。那段時間你的狀態是：${bits.join('、')}。也許跟這有關。${tip}`;
   } else whatIf = '你的專注三年來沒有明顯的斷崖，也許是因為你每一步都走得很平穩。';
 
   // 你的選擇，後來……：早先的選擇在後面帶來的結果（最多 6 項）
@@ -296,7 +299,7 @@ export function buildEnding(st, data) {
         chosen: changed ? [`把通勤方式從「${id.commuteOrig}」改成「${id.commute}」`] : [],
         drawn: [`出生在${id.county}${id.district}`, ...(!changed ? [`每天通勤的方式：${id.commuteOrig}`] : []), `${formatDate(tl.start)} 那一天`],
       },
-      truth: `在台灣：${ev.display}`, curves, whatIf: '', payoffs: [], good: '', regret: '', turning: null, outcome: null,
+      autoLine: st.autoTurns > 0 ? `其中有 ${st.autoTurns} 回合是他自己過的，不是你選的。` : '', truth: `在台灣：${ev.display}`, curves, whatIf: '', payoffs: [], good: '', regret: '', turning: null, outcome: null,
     };
   }
   const o = st.outcome || computeOutcome(st, data);
@@ -322,6 +325,7 @@ export function buildEnding(st, data) {
       { age: '25 歲', text: txt.a25 + moneyLine }, { age: '30 歲', text: txt.a30 },
     ],
     good: txt.good, regret: txt.regret, curves, chosenDrawn: { chosen, drawn }, whatIf, payoffs,
+    autoLine: st.autoTurns > 0 ? `其中有 ${st.autoTurns} 回合是他自己過的，不是你選的。` : '',
     reveal: `你的心情平均 ${mean(hs.map((h) => h.心情)).toFixed(0)}，真實幸福平均 ${mean(hs.map((h) => h.幸福)).toFixed(0)}。短期開心和長期過得好，不一定是同一條線。`,
     footnote: '以上是模型推估的可能性，不是預言；睡眠、手機與專注的關係來自研究共識，但數字是設計假設。' + ((st.scams || []).length ? '被騙時先保留證據、撥 165 反詐騙專線。' : ''),
   };

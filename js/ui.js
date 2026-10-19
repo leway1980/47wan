@@ -4,6 +4,7 @@ import { visibleScore, focusPhrase } from './engine/state.js';
 import { formatDateLong } from './engine/report.js';
 import { avatarSVG } from './engine/avatar.js';
 import { shockView, parentLabel, tutorCap, tutorIsFree, effectiveEcon } from './engine/family.js';
+import { TOTAL_TURNS } from './engine/turn.js';
 
 // 粗估比例：「每 10 人有 4 人」比「1,000 人中 382 人」好讀
 const rough = (n) => {
@@ -69,14 +70,14 @@ const GRADE = ['高一', '高二', '高三'];
 export const termLabel = (tl) => `${GRADE[tl.year - 1]}${tl.seg}`;
 
 /* ───────────── 標題 ───────────── */
-export function renderTitle(root, { hasSave, onNew, onContinue }) {
+export function renderTitle(root, { hasSave, continueLabel = '繼續', onNew, onContinue }) {
   root.replaceChildren(
     h('main', { class: 'wrap hero' },
       h('h1', null, '《47萬分之1》'),
       h('p', { class: 'sub' }, '高中人生模擬。你只負責做決定，其餘交給人生。'),
       h('p', { class: 'sub' }, '你是 2026 年，全台 47 萬名高中、高職學生裡的一人。'),
       h('div', { class: 'actions' },
-        hasSave && h('button', { class: 'btn primary', 'data-act': 'continue', onClick: onContinue }, '繼續'),
+        hasSave && h('button', { class: 'btn primary', 'data-act': 'continue', onClick: onContinue }, continueLabel),
         h('button', { class: hasSave ? 'btn' : 'btn primary', 'data-act': 'new', onClick: onNew }, '開始新的人生'),
       ),
       h('p', { class: 'small muted', style: 'margin-top:32px' }, '不用打字，不用註冊。名字、座號、學校、家庭，都是抽到的。'),
@@ -112,7 +113,7 @@ const PHONE = ['幾乎不用', '需要才用', '下課會滑', '一有空就滑'
 const SPORT = ['不運動', '偶爾動一動', '固定運動'];
 const GAME = ['不玩', '偶爾玩', '常常玩', '天天上線'];
 
-export function renderGame(root, { onSpeed, speed }) {
+export function renderGame(root, { onSpeed, speed, onAuto, onSkipEnd }) {
   const refs = {};
   refs.speed = speed;
   refs.date = h('div', { class: 'date', id: 'date', 'aria-live': 'off' });
@@ -120,6 +121,8 @@ export function renderGame(root, { onSpeed, speed }) {
   refs.date.append(h('span', { id: 'date-text' }), refs.term);
   refs.speedBtns = [[0, '暫停'], [1, '1×'], [2, '2×'], [4, '4×']].map(([v, t]) =>
     h('button', { 'data-speed': v, 'aria-pressed': String(v === speed), onClick: () => onSpeed(v) }, t));
+  refs.autoBtn = h('button', { 'data-act': 'auto', 'aria-pressed': 'false', onClick: onAuto }, '讓他自己過');
+  refs.skipBtn = h('button', { 'data-act': 'skip-end', onClick: onSkipEnd }, '直接看結局');
   refs.prog = h('i');
   refs.stats = h('div', { class: 'stats' });
   refs.habits = h('details', { class: 'habits', open: true });
@@ -129,7 +132,7 @@ export function renderGame(root, { onSpeed, speed }) {
   refs.modal = h('div', { id: 'modal-root' });
   root.replaceChildren(
     h('div', { class: 'topbar' },
-      h('div', { class: 'wrap' }, refs.avHeader, refs.date, h('div', { class: 'seg', role: 'group', 'aria-label': '時間速度' }, refs.speedBtns)),
+      h('div', { class: 'wrap' }, refs.avHeader, refs.date, h('div', { class: 'seg', role: 'group', 'aria-label': '時間速度' }, refs.speedBtns), h('div', { class: 'seg seg-auto', role: 'group', 'aria-label': '讓他自己過' }, refs.autoBtn, refs.skipBtn)),
       h('div', { class: 'progress', role: 'progressbar', 'aria-label': '三年進度' }, refs.prog),
     ),
     h('main', { class: 'wrap layout' },
@@ -167,12 +170,14 @@ export function setSpeedButtons(refs, speed) {
   for (const b of refs.speedBtns) b.setAttribute('aria-pressed', String(+b.dataset.speed === speed));
 }
 
+export function setAutoButton(refs, on) { refs.autoBtn.setAttribute('aria-pressed', String(on)); }
+
 export function setClock(refs, ms, tl, progress) {
   refs.date.querySelector('#date-text').textContent = dateStr(ms);
-  refs.term.textContent = `${termLabel(tl)} · 第 ${tl.turn + 1} / 72 回合`;
+  refs.term.textContent = `${termLabel(tl)} · 第 ${tl.turn + 1} / ${TOTAL_TURNS} 回合`;
   refs.termText = `${termLabel(tl)}・${rocYear(tl.start)}學年度`;
   if (refs.profTerm) refs.profTerm.textContent = refs.termText;
-  refs.prog.style.width = `${(Math.min(72, progress) / 72) * 100}%`;
+  refs.prog.style.width = `${(Math.min(TOTAL_TURNS, progress) / TOTAL_TURNS) * 100}%`;
 }
 
 const moodWord = (m) => (m >= 70 ? '很開心' : m >= 55 ? '還不錯' : m >= 40 ? '普通' : m >= 25 ? '有點低落' : '很低落');
@@ -339,6 +344,9 @@ function overlay(refs, ...content) {
   return sheet;
 }
 export function closeModal(refs) { refs.modal.replaceChildren(); }
+// 自動模式：把他選的那一項亮起來給玩家看一下
+export function markPicked(refs, i) { const b = refs.modal.querySelector(`.choice[data-i="${i}"]`); if (b) b.classList.add('picked'); }
+export function unmarkPicked(refs) { for (const b of refs.modal.querySelectorAll('.choice.picked')) b.classList.remove('picked'); }
 
 const chipLabel = (k) => (k === '分數' ? '分數' : k);
 export function showCard(refs, card, termText, onChoose) {
@@ -415,14 +423,18 @@ export function showReport(refs, rp, { onGuess, onNext, guessed, st, avatar }) {
       h('div', null, h('div', { class: 'eyebrow' }, '學期報告'), h('h2', null, `${rp.title}結束了`))),
     h('div', { class: 'tiles' }, tiles.map(([ic, k, v]) => h('div', { class: 'tile' }, h('span', { class: 'ic', 'aria-hidden': 'true' }, ic), h('span', { class: 'tk' }, k), h('span', { class: 'tv' }, v)))),
     h('ul', { class: 'facts' }, facts.map((t) => h('li', null, t))),
+    rp.feed && rp.feed.length > 0 && h('h3', { class: 'feed-peers-h' }, '同屆的其他人'),
+    rp.feed && rp.feed.length > 0 && h('ul', { class: 'feed-peers' }, rp.feed.map((t) => h('li', null, t))),
     h('div', { class: 'rq' }, h('p', { class: 'small muted' }, rp.quiz.question), input, out),
     btn,
   );
   btn.focus({ preventScroll: true });
+  return { skip: () => onNext(shown ? null : rp.quiz.answer) }; // 自動模式：不回答猜題，直接看答案並繼續
 }
 
 /* ───────────── 終局 ───────────── */
-export function renderEnding(root, e, { onSame, onNew, seed, avatar }) {
+export function renderEnding(root, e, { onSame, onNew, seed, avatar, away }) {
+  const awayP = away && h('p', { class: 'small muted', 'data-away': '1' }, away);
   const av = avatar ? portrait('xl', avHTML(avatar.spec, avatar.opts), { 'data-av': 'ending' }) : null;
   const btns = h('div', { class: 'btns' },
     h('button', { class: 'btn primary block', 'data-act': 'same', onClick: onSame }, '同一個人生再來一次'),
@@ -431,6 +443,7 @@ export function renderEnding(root, e, { onSame, onNew, seed, avatar }) {
   );
   if (e.dead) {
     root.replaceChildren(h('main', { class: 'wrap end dead-end', id: 'ending' },
+      awayP,
       av,
       h('p', { class: 'muted small' }, `${e.header.name}｜${e.header.line}`),
       h('p', { class: 'line' }, e.sections[0].text),
@@ -443,10 +456,12 @@ export function renderEnding(root, e, { onSame, onNew, seed, avatar }) {
         ),
         h('p', { class: 'taiwan' }, e.truth),
       ),
+      e.autoLine && h('p', { class: 'small muted', style: 'margin-top:14px' }, e.autoLine),
       btns));
     return;
   }
   root.replaceChildren(h('main', { class: 'wrap end', id: 'ending' },
+    awayP,
     h('div', { class: 'head' },
       av,
       h('div', { class: 'nm' }, `47萬分之1 ── 你的人生報告`),
@@ -476,6 +491,7 @@ export function renderEnding(root, e, { onSame, onNew, seed, avatar }) {
     e.payoffs && e.payoffs.length > 0 && h('div', { class: 'paper', style: 'margin-top:14px' }, h('h3', null, '你的選擇，後來……'), h('ul', null, e.payoffs.map((t) => h('li', null, t)))),
     h('div', { class: 'paper', style: 'margin-top:14px' }, h('h3', null, '如果重來'), h('p', null, e.whatIf)),
     h('p', { class: 'small muted', style: 'margin-top:14px' }, e.footnote),
+    e.autoLine && h('p', { class: 'small muted' }, e.autoLine),
     btns,
   ));
 }

@@ -15,6 +15,7 @@ import { N_PEERS, stepPeers } from '../js/engine/peers.js';
 import { tutorCap, tutorMaxLevel, famStep, shockOf, effectiveEcon } from '../js/engine/family.js';
 import { avatarSVG, avatarSpec, avatarOptsFromState, isCompletePalette } from '../js/engine/avatar.js';
 import { generateIdentity } from '../js/engine/identity.js';
+import { selfChoice, playRestAuto } from '../js/engine/auto.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const rd = (f) => JSON.parse(readFileSync(join(root, 'data', f), 'utf8'));
@@ -37,15 +38,18 @@ function scripted(seed) {
   };
 }
 
-test('時間軸：72 回合，從 2026-08-31 開始，每學年 10+2+10+2', () => {
-  assert.equal(data.timeline.length, 72);
+test('時間軸：70 回合，從 2026-08-31 開始，每學年 10+2+10+2（最後一個暑假省略）', () => {
+  assert.equal(data.timeline.length, 70);
+  assert.equal(TOTAL_TURNS, 70);
+  assert.equal(new Date(data.timeline[69].end).toISOString().slice(0, 10), '2029-07-01');
+  assert.equal(data.timeline[69].seg, '下學期');
   assert.equal(new Date(data.timeline[0].start).toISOString().slice(0, 10), '2026-08-31');
   const segs = data.timeline.slice(0, 24).map((t) => t.seg);
   assert.equal(segs.filter((s) => s === '上學期').length, 10);
   assert.equal(segs.filter((s) => s === '寒假').length, 2);
   assert.equal(segs.filter((s) => s === '下學期').length, 10);
   assert.equal(segs.filter((s) => s === '暑假').length, 2);
-  for (let i = 1; i < 72; i++) assert.ok(data.timeline[i].start > data.timeline[i - 1].start, '日期要遞增');
+  for (let i = 1; i < 70; i++) assert.ok(data.timeline[i].start > data.timeline[i - 1].start, '日期要遞增');
   assert.ok(data.timeline.filter((t) => t.vacation).every((t) => t.seg === '寒假' || t.seg === '暑假'));
 });
 
@@ -71,7 +75,7 @@ test('同一個人生：同種子、不同選擇 ⇒ 同身分、同運氣（人
   }
 });
 
-test('完整自動遊玩：許多種子都能跑完 72 回合（或死亡）而不拋錯', () => {
+test('完整自動遊玩：許多種子都能跑完 70 回合（或死亡）而不拋錯', () => {
   let finished = 0;
   for (let seed = 1; seed <= 60; seed++) {
     const st = newState(seed, data);
@@ -207,13 +211,13 @@ test('灰色選項：吃緊的家庭看得到營隊但不能選', () => {
   assert.ok(found);
 });
 
-test('同儕：999 人 × 72 回合遠少於 1 秒，且有 12 個認識的人', () => {
+test('同儕：999 人 × 70 回合遠少於 1 秒，且有 12 個認識的人', () => {
   const st = newState(11, data);
   assert.equal(st.peers.a.length, N_PEERS * 8);
   assert.equal(st.peers.known.length, 12);
   assert.equal(new Set(st.peers.known.map((k) => k.name)).size, 12);
   const t0 = performance.now();
-  for (let k = 0; k < 72; k++) stepPeers(st, data, data.timeline[k]);
+  for (let k = 0; k < 70; k++) stepPeers(st, data, data.timeline[k]);
   assert.ok(performance.now() - t0 < 1000);
 });
 
@@ -809,4 +813,51 @@ test('交往卡資料：至少 18 張交往卡，都需要交往中、有冷卻�
   assert.ok(ds.filter((c) => c.payoffOf).length >= 5);
   for (const c of ds) for (const ch of c.choices) for (const g of [].concat(ch.grayIf || [])) assert.ok(!/性別/.test(g.if), `${c.id} 不能用性別鎖選項`);
   for (const c of ds) if (c.requires?.expr) assert.ok(!/性別/.test(c.requires.expr), `${c.id} 不能用性別擋卡片`);
+});
+
+test('讓他自己過：從開頭與回合中途都能一路過完，且有記錄自己過的回合', () => {
+  const a = newState(11, data);
+  playRestAuto(a, data);
+  assert.ok(a.ended);
+  assert.ok(a.autoTurns > 0);
+  // 回合進行到一半（已抽卡、尚未選）
+  const b = newState(12, data);
+  for (let i = 0; i < 5; i++) playTurn(b, data, scripted(12));
+  startTurn(b, data);
+  assert.ok(b.cur);
+  playRestAuto(b, data);
+  assert.ok(b.ended && !b.cur);
+  assert.ok(b.autoTurns > 0);
+  assert.equal(serialize(playRestAuto(newState(11, data), data)), serialize(a), '決定性');
+});
+
+test('selfChoice 不會選到不能選的選項', () => {
+  let n = 0;
+  for (const seed of [3, 4, 5]) {
+    const st = newState(seed, data);
+    st.stats.錢包 = 50;
+    while (!st.ended) {
+      const res = startTurn(st, data);
+      if (!res.dead && res.card) {
+        const i = selfChoice(st, res.card);
+        assert.ok(!res.card.choices.find((c) => c.i === i).disabled, `${res.card.id}#${i}`);
+        chooseCard(st, data, i); n++;
+      }
+      finishTurn(st, data);
+      st.reportPending = null;
+    }
+  }
+  assert.ok(n > 50);
+});
+
+test('同屆的其他人：peerFeed 最多 12 則，且死亡消息不含姓名', () => {
+  let any = 0;
+  for (const seed of [1, 2, 3, 4, 5]) {
+    const st = newState(seed, data);
+    playToEnd(st, data, scripted(seed));
+    assert.ok(st.peerFeed.length <= 12);
+    any += st.peerFeed.length;
+    for (const f of st.peerFeed) assert.ok(f.text && typeof f.turn === 'number');
+  }
+  assert.ok(any > 0, '應該至少留下一些消息');
 });

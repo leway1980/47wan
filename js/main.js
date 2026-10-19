@@ -3,12 +3,16 @@ import { prepareData, startTurn, chooseCard, finishTurn, answerQuiz, clearReport
 import { newState, serialize, deserialize, SAVE_KEY } from './engine/state.js';
 import { openingText } from './engine/identity.js';
 import { buildEnding } from './engine/report.js';
+import { selfChoice, playRestAuto } from './engine/auto.js';
 import { avatarSpec, avatarOptsFromState } from './engine/avatar.js';
 import * as ui from './ui.js';
 
 const DAY = 86400000;
 const root = document.getElementById('app');
 const params = new URLSearchParams(location.search);
+const intParam = (k, d) => { const v = parseInt(params.get(k) || '', 10); return Number.isFinite(v) && v > 0 ? v : d; };
+const IDLE_MS = intParam('idle', 60000); // 沒動靜這麼久，就替他選一步（測試可用 ?idle= 縮短）
+const OFFLINE_MS = intParam('offline', 3 * DAY); // 離開超過這麼久，繼續時直接看後來怎麼了
 const TURN_MS = Math.max(200, parseInt(params.get('ms') || '8000', 10) || 8000); // 1× 時一個回合約 8 秒
 
 /* ───── 安全的儲存（所有存取都包 try/catch；壞掉就只存在記憶體） ───── */
@@ -23,7 +27,7 @@ function readSave() {
   if (!raw) return null;
   try { const s = deserialize(raw); s.cur = null; return s; } catch { return null; }
 }
-function writeSave(st) { try { store.set(serialize(st)); } catch { /* 存不了也要能玩 */ } }
+function writeSave(st) { try { st.lastSeen = Date.now(); store.set(serialize(st)); } catch { /* 存不了也要能玩 */ } }
 
 /* ───── 資料載入 ───── */
 let data;
@@ -39,6 +43,7 @@ async function loadData() {
 }
 
 /* ───── 遊戲狀態（控制器內） ───── */
+let auto = false, ctl = null, idleTimer = null;
 let st = null, refs = null, speed = 1, timer = null, clock = null, phase = 'idle', seed = 0, pendingFin = null;
 
 /* ───── 小人 ───── */
@@ -52,12 +57,16 @@ const newSeed = () => (Math.floor(Math.random() * 4294967296) >>> 0) || 1;
 function showTitle() {
   stopClock();
   phase = 'idle';
+  const sv = readSave();
   ui.renderTitle(root, {
-    hasSave: !!readSave(),
+    hasSave: !!sv,
+    continueLabel: sv && isStale(sv) ? `看看${sv.identity.name}後來怎麼了` : '繼續',
     onNew: () => showIntro(params.get('seed') ? parseInt(params.get('seed'), 10) >>> 0 : newSeed()),
     onContinue: () => resume(),
   });
 }
+
+const isStale = (s) => !!s.lastSeen && Date.now() - s.lastSeen > OFFLINE_MS;
 
 function showIntro(s) {
   seed = s >>> 0;
@@ -91,6 +100,12 @@ function resume() {
   const s = readSave();
   if (!s) { showTitle(); return; }
   st = s; seed = st.seed;
+  if (isStale(s)) { // 離開很久：高中自己過完了
+    const days = Math.max(1, Math.round((Date.now() - s.lastSeen) / DAY));
+    playRestAuto(st, data);
+    showEnding(`你離開了 ${days} 天。這段時間，${st.identity.name}的高中自己過完了。`);
+    return;
+  }
   buildGameScreen();
   // 還原最近幾回合的紀錄
   for (const lg of st.logs.slice(-3)) {
@@ -103,8 +118,9 @@ function resume() {
 }
 
 function buildGameScreen() {
-  speed = 1;
-  refs = ui.renderGame(root, { speed, onSpeed: setSpeed });
+  speed = auto ? 4 : 1;
+  refs = ui.renderGame(root, { speed, onSpeed: setSpeed, onAuto: toggleAuto, onSkipEnd: skipToEnd });
+  ui.setAutoButton(refs, auto);
   const tl = data.timeline[Math.min(st.turn, TOTAL_TURNS - 1)];
   ui.setClock(refs, tl.start, tl, tl.turn);
   ui.renderHabits(refs, st, onHabit, habitCtx());
@@ -149,16 +165,73 @@ function beginTurn() {
     if (res.dead && !queue.length) { endTurn(); return; }
     const item = queue.shift();
     if (!item) { endTurn(); return; }
-    if (item.n) ui.showNotice(refs, item.n, () => { ui.closeModal(refs); next(); });
-    else {
-      ui.showCard(refs, item.card, `${ui.termLabel(tl)} · ${ui.shortDate(tl.start)}`, (i) => {
+    let c;
+    if (item.n) {
+      const fin = () => { ui.closeModal(refs); next(); };
+      ui.showNotice(refs, item.n, () => c.settle(fin));
+      c = arm((c) => c.later(item.n.death ? 2500 : 1500, fin));
+    } else {
+      const pickIt = (i, viaAuto) => {
+        if (viaAuto) st.autoTurns = (st.autoTurns || 0) + 1;
         chooseCard(st, data, i);
         ui.closeModal(refs);
         next();
+      };
+      ui.showCard(refs, item.card, `${ui.termLabel(tl)} · ${ui.shortDate(tl.start)}`, (i) => c.settle(() => pickIt(i, false)));
+      c = arm((c) => {
+        const i = selfChoice(st, item.card);
+        ui.markPicked(refs, i);
+        c.later(1200, () => pickIt(i, true));
       });
     }
   };
   next();
+}
+
+/* ───── 自動：讓他自己過／閒置 60 秒替他走一步 ───── */
+// 每個對話框建立一個控制物件：step() 執行「他自己會怎麼做」；自動模式一開就走，否則等閒置計時
+function disarm() {
+  if (ctl) { ctl.done = true; clearTimeout(ctl.t); }
+  ctl = null;
+  clearTimeout(idleTimer); idleTimer = null;
+}
+function arm(step) {
+  disarm();
+  const c = ctl = { done: false, stepped: false, t: null };
+  c.settle = (fn) => { if (c.done) return; disarm(); fn(); };
+  c.timer = (ms, fn) => { c.t = setTimeout(fn, ms); };
+  c.later = (ms, fn) => c.timer(ms, () => c.settle(fn));
+  c.step = () => { if (c.done || c.stepped) return; c.stepped = true; step(c); };
+  if (auto) c.step(); else resetIdle();
+  return c;
+}
+function resetIdle() {
+  clearTimeout(idleTimer); idleTimer = null;
+  if (ctl && !ctl.done && !auto) { const c = ctl; idleTimer = setTimeout(() => c.step(), IDLE_MS); }
+}
+function cancelStep() { // 玩家動了：取消已排好的自動一步
+  if (ctl && ctl.stepped && !ctl.done) { clearTimeout(ctl.t); ctl.stepped = false; if (refs) ui.unmarkPicked(refs); }
+}
+function onInteract() { if (!auto) cancelStep(); resetIdle(); }
+
+function toggleAuto() {
+  auto = !auto;
+  ui.setAutoButton(refs, auto);
+  if (auto) {
+    if (speed <= 1) setSpeed(4);
+    clearTimeout(idleTimer); idleTimer = null;
+    if (ctl) ctl.step();
+  } else {
+    cancelStep(); resetIdle();
+  }
+}
+
+function skipToEnd() {
+  if (!st || st.ended && phase === 'ended') return;
+  if (!confirm('剩下的高中生活會由他自己過完，直接看結局？')) return;
+  disarm(); stopClock();
+  playRestAuto(st, data);
+  showEnding();
 }
 
 function waitForResume() {
@@ -213,18 +286,21 @@ function showReportModal() {
   stopClock();
   const rp = st.reportPending;
   const q = st.quiz.find((x) => x.sem === rp.title);
-  ui.showReport(refs, rp, {
+  let c;
+  const view = ui.showReport(refs, rp, {
     guessed: q ? q.guess : null,
     st, avatar: avatarView(),
     onGuess: (g) => { answerQuiz(st, g); writeSave(st); },
-    onNext: (blankAnswer) => {
+    onNext: (blankAnswer) => c.settle(() => {
       if (blankAnswer != null) ui.appendLog(refs, null, `同屆在補習或打工的比例：${blankAnswer}%`, 'sys');
-      clearReport(st); writeSave(st); ui.closeModal(refs); beginTurn(); },
+      clearReport(st); writeSave(st); ui.closeModal(refs); beginTurn(); }),
   });
+  c = arm((c) => c.timer(3000, () => view.skip())); // 自動：不回答猜題，直接看答案並繼續
 }
 
 /* ───── 終局 ───── */
-function showEnding() {
+function showEnding(away) {
+  disarm();
   stopClock();
   phase = 'ended';
   const e = buildEnding(st, data);
@@ -232,7 +308,7 @@ function showEnding() {
   av.opts = { ...av.opts, outfit: 'uniform', dead: !!st.dead };
   store.del(); // 這一局結束了，不再顯示「繼續」
   ui.renderEnding(root, e, {
-    seed: st.seed, avatar: av,
+    seed: st.seed, avatar: av, away,
     onSame: () => { const s = newState(st.seed, data); startGame(s); },
     onNew: () => showIntro(newSeed()),
   });
@@ -247,7 +323,9 @@ function showEnding() {
     root.textContent = '載入失敗：' + err.message + '。請用 http 伺服器開啟（例如 python3 -m http.server），不要直接雙擊 index.html。';
     return;
   }
+  document.addEventListener('pointerdown', onInteract, true);
+  document.addEventListener('keydown', onInteract, true);
   showTitle();
 })();
 
-window.__wan47 = { get state() { return st; }, get phase() { return phase; } }; // 方便除錯與自動化測試
+window.__wan47 = { get state() { return st; }, get phase() { return phase; }, get auto() { return auto; } }; // 方便除錯與自動化測試

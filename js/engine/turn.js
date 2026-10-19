@@ -56,7 +56,7 @@ export function prepareData(raw) {
   }
   setSlotData(raw.slots); // 變數槽的池（沒有就視為空，槽會被去掉而不是露出原始標記）
   const life = { events: raw.life_events.events, byId: Object.fromEntries(raw.life_events.events.map((e) => [e.id, e])) };
-  return { identities: { ...raw.identities, schoolList: raw.schools.schools }, events: raw.events, calendar: raw.calendar, slots: raw.slots, life, cardIndex, timeline: buildTimeline(raw.calendar) };
+  return { identities: { ...raw.identities, schoolList: raw.schools.schools }, events: raw.events, calendar: raw.calendar, slots: raw.slots, endings: raw.endings, life, cardIndex, timeline: buildTimeline(raw.calendar) };
 }
 
 /* ───────────── 習慣自動結算 ───────────── */

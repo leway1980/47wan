@@ -84,6 +84,7 @@ export function famStep(st, data, tl) {
   for (const [k, w] of opts) { if ((x -= w) < 0) { id = k; break; } }
   const dur = 6 + Math.floor(rngAt(st.seed, st.turn, 'famdur') * 11); // 6–16 回合
   st.fam = { shock: { id, from: st.turn, until: st.turn + dur } };
+  (st.famHistory ||= []).push(id); // 結局「家人生病」等條件用
   out.cardId = SHOCKS[id].card;
   return out;
 }

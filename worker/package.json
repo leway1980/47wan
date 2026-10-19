@@ -1,0 +1,7 @@
+{
+  "name": "wan47-stats",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "wrangler dev --local --persist-to .wrangler/state", "deploy": "wrangler deploy" },
+  "devDependencies": { "wrangler": "4.150.0" }
+}

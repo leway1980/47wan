@@ -340,7 +340,7 @@ export function applyChoice(st, data, card, idx, ctx, r, turnNo) {
   if (ch.declineGame && st.gameDecline % 3 === 0) extra = '公會的人問你是不是不玩了。';
   if (card.once) st.used[card.id] = true;
   if (card.cooldown) st.cooldowns[card.id] = turnNo + card.cooldown + 1;
-  st.choices.push({ turn: turnNo, id: card.id, title: fill(card.title, st), label: fill(ch.label, st), commute: ch.setCommute || null, spend: !!ch.spend });
+  st.choices.push({ turn: turnNo, id: card.id, title: fill(card.title, st), label: fill(ch.label, st), commute: ch.setCommute || null, spend: !!ch.spend, ...(ch.setFlags && { fl: ch.setFlags }) }); // fl：線上動態用
   if (card.payoffOf) { // 「早先的選擇」帶來的後果：記下來，結局報告會列出
     const e = ch.effects || {};
     const val = (e.心情 || 0) + (e.聯繫 || 0) + (e.分數 || 0) + (e.體力 || 0) * 0.5 + (e.錢包 || 0) / 100;

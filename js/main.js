@@ -3,6 +3,7 @@ import { prepareData, startTurn, chooseCard, finishTurn, answerQuiz, clearReport
 import { newState, serialize, deserialize, SAVE_KEY } from './engine/state.js';
 import { openingText } from './engine/identity.js';
 import { buildEnding } from './engine/report.js';
+import { avatarSpec, avatarOptsFromState } from './engine/avatar.js';
 import * as ui from './ui.js';
 
 const DAY = 86400000;
@@ -39,6 +40,12 @@ async function loadData() {
 /* ───── 遊戲狀態（控制器內） ───── */
 let st = null, refs = null, speed = 1, timer = null, clock = null, phase = 'idle', seed = 0, pendingFin = null;
 
+/* ───── 小人 ───── */
+const curTl = () => data.timeline[Math.min(st.turn, TOTAL_TURNS - 1)];
+const avatarView = (tl = curTl()) => ({ spec: avatarSpec(st.identity, data.identities, st.seed), opts: avatarOptsFromState(st, tl) });
+function refreshAvatar(tl) { if (refs) { const v = avatarView(tl); ui.setAvatar(refs, v.spec, v.opts); } }
+const habitCtx = () => ({ onAfter: () => { writeSave(st); refreshAvatar(); } });
+
 const newSeed = () => (Math.floor(Math.random() * 4294967296) >>> 0) || 1;
 
 function showTitle() {
@@ -63,6 +70,8 @@ function showIntro(s) {
     supportLine: `家裡的支援方式：${id.family.support}。${data.identities.supports[id.family.support]}`,
     tags: [id.county + id.district, id.schoolType, id.family.econ, `通勤：${id.commute}`],
     seed,
+    avatar: { spec: avatarSpec(id, data.identities, seed), opts: { outfit: 'uniform', mood: 'neutral' } },
+    uniformCaption: `${id.schoolKey}高中制服`,
     onStart: () => startGame(draft),
     onReroll: () => showIntro(newSeed()),
   });
@@ -95,10 +104,11 @@ function resume() {
 function buildGameScreen() {
   speed = 1;
   refs = ui.renderGame(root, { speed, onSpeed: setSpeed });
-  ui.renderHabits(refs, st, onHabit);
-  ui.updateStats(refs, st);
   const tl = data.timeline[Math.min(st.turn, TOTAL_TURNS - 1)];
   ui.setClock(refs, tl.start, tl, tl.turn);
+  ui.renderHabits(refs, st, onHabit, habitCtx());
+  refreshAvatar(tl);
+  ui.updateStats(refs, st);
 }
 
 function onHabit(k, v) {
@@ -112,10 +122,11 @@ function setSpeed(v) {
   ui.setSpeedButtons(refs, speed);
   if (phase === 'ticking') scheduleTick();
 }
-function stopClock() { if (timer) { clearTimeout(timer); timer = null; } }
+function stopClock() { if (timer) { clearTimeout(timer); timer = null; } ui.setAvatarAnim(refs, false); }
 function scheduleTick() {
   stopClock();
   if (phase !== 'ticking' || speed === 0) return;
+  ui.setAvatarAnim(refs, true);
   const dt = TURN_MS / Math.max(1, clock.tl.days) / speed;
   timer = setTimeout(tick, dt);
 }
@@ -129,6 +140,8 @@ function beginTurn() {
   const res = startTurn(st, data);
   const tl = res.tl;
   ui.setClock(refs, tl.start, tl, tl.turn);
+  refreshAvatar(tl);
+  ui.renderHabits(refs, st, onHabit, habitCtx()); // 家境若在這回合開頭變動，標頭要跟著換
   phase = 'modal';
   const queue = [...res.notices.map((n) => ({ n })), ...(res.card ? [{ card: res.card }] : [])];
   const next = () => {
@@ -157,7 +170,8 @@ function endTurn() {
   const fin = finishTurn(st, data);
   pendingFin = fin;
   ui.updateStats(refs, st);
-  ui.renderHabits(refs, st, onHabit);
+  ui.renderHabits(refs, st, onHabit, habitCtx());
+  refreshAvatar(fin.tl);
   writeSave(st);
   if (st.dead) { showEnding(); return; }
   clock = { tl: fin.tl, day: 0, lines: fin.lines.slice() };
@@ -200,8 +214,11 @@ function showReportModal() {
   const q = st.quiz.find((x) => x.sem === rp.title);
   ui.showReport(refs, rp, {
     guessed: q ? q.guess : null,
+    st, avatar: avatarView(),
     onGuess: (g) => { answerQuiz(st, g); writeSave(st); },
-    onNext: () => { clearReport(st); writeSave(st); ui.closeModal(refs); beginTurn(); },
+    onNext: (blankAnswer) => {
+      if (blankAnswer != null) ui.appendLog(refs, null, `同屆在補習或打工的比例：${blankAnswer}%`, 'sys');
+      clearReport(st); writeSave(st); ui.closeModal(refs); beginTurn(); },
   });
 }
 
@@ -210,9 +227,11 @@ function showEnding() {
   stopClock();
   phase = 'ended';
   const e = buildEnding(st, data);
+  const av = avatarView();
+  av.opts = { ...av.opts, outfit: 'uniform', dead: !!st.dead };
   store.del(); // 這一局結束了，不再顯示「繼續」
   ui.renderEnding(root, e, {
-    seed: st.seed,
+    seed: st.seed, avatar: av,
     onSame: () => { const s = newState(st.seed, data); startGame(s); },
     onNew: () => showIntro(newSeed()),
   });

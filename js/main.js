@@ -39,9 +39,9 @@ async function loadData() {
     if (!r.ok) throw new Error(`載入 ${f} 失敗 (${r.status})`);
     return r.json();
   };
-  const [identities, schools, events, calendar, life_events, campus, payoff, dating, slots] = await Promise.all(['identities.json', 'schools.json', 'events.json', 'calendar.json', 'life_events.json', 'events_campus.json', 'events_payoff.json', 'events_dating.json', 'slots.json'].map(get));
+  const [identities, schools, events, calendar, life_events, campus, payoff, dating, slots, endings] = await Promise.all(['identities.json', 'schools.json', 'events.json', 'calendar.json', 'life_events.json', 'events_campus.json', 'events_payoff.json', 'events_dating.json', 'slots.json', 'endings.json'].map(get));
   events.cards.push(...campus.cards, ...payoff.cards, ...dating.cards); // 校園事件、前因後果卡、交往事件放在獨立檔案
-  data = prepareData({ identities, schools, events, calendar, life_events, slots });
+  data = prepareData({ identities, schools, events, calendar, life_events, slots, endings });
 }
 
 /* ───── 遊戲狀態（控制器內） ───── */

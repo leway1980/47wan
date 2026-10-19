@@ -23,7 +23,7 @@ import { FLAVOR_WIN } from '../js/engine/turn.js';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const rd = (f) => JSON.parse(readFileSync(join(root, 'data', f), 'utf8'));
 const withCampus = () => { const e = rd('events.json'); for (const f of readdirSync(join(root, 'data')).sort()) if (/^events_.+\.json$/.test(f)) e.cards.push(...rd(f).cards); return e; };
-const raw = () => ({ identities: rd('identities.json'), schools: rd('schools.json'), events: withCampus(), calendar: rd('calendar.json'), life_events: rd('life_events.json'), slots: rd('slots.json') });
+const raw = () => ({ identities: rd('identities.json'), schools: rd('schools.json'), events: withCampus(), calendar: rd('calendar.json'), life_events: rd('life_events.json'), slots: rd('slots.json'), endings: rd('endings.json') });
 const data = prepareData(raw());
 
 // 固定的「玩家」：習慣與選擇都由自己的亂數決定

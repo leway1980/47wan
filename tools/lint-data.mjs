@@ -7,6 +7,7 @@ import { tokenize, buildCtx, compile } from '../js/engine/events.js';
 import { prepareData } from '../js/engine/turn.js';
 import { newState, HABIT_DEFAULTS } from '../js/engine/state.js';
 import { FIXED_TOKENS } from '../js/engine/slots.js';
+import { endingCtx, TURN_TAGS, FACETS, ENDING_PLACEHOLDERS } from '../js/engine/ending.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const rd = (f) => JSON.parse(readFileSync(join(ROOT, 'data', f), 'utf8'));
@@ -16,7 +17,7 @@ export function loadRaw() {
   for (const f of readdirSync(join(ROOT, 'data'))) {
     if (/^events_.+\.json$/.test(f)) events.cards.push(...rd(f).cards);
   }
-  return { identities: rd('identities.json'), schools: rd('schools.json'), events, calendar: rd('calendar.json'), life_events: rd('life_events.json'), slots: rd('slots.json') };
+  return { identities: rd('identities.json'), schools: rd('schools.json'), events, calendar: rd('calendar.json'), life_events: rd('life_events.json'), slots: rd('slots.json'), endings: rd('endings.json') };
 }
 
 const engineSrc = () => readdirSync(join(ROOT, 'js', 'engine')).map((f) => readFileSync(join(ROOT, 'js', 'engine', f), 'utf8')).join('\n');
@@ -147,7 +148,42 @@ export function lintData(raw = loadRaw()) {
     if (!up) warns.push(`習慣「${h}」沒有任何事件能讓它上升`);
     if (!down) warns.push(`習慣「${h}」沒有任何事件能讓它下降`);
   }
+  if (raw.endings) lintEndings(raw.endings, endingCtx(st, data), errors);
   return { errors, warns };
+}
+
+// 終局句庫：條件編得出來、只用 endingCtx 有的變數、每個面向有無條件的後備、佔位符都認得、每句 60 字內
+function lintEndings(E, ectx, errors) {
+  const keys = new Set(Object.keys(ectx));
+  const chk = (it, where) => {
+    if (it.if) {
+      try { for (const t of tokenize(it.if)) if (t.t === 'var' && !keys.has(t.v)) errors.push(`${where}：條件用到不存在的終局變數「${t.v}」`); compile(it.if); } catch (e) { errors.push(`${where}：條件寫錯「${it.if}」：${e.message}`); }
+    }
+    if (typeof it.t !== 'string' || !it.t) errors.push(`${where}：沒有文字`);
+    else {
+      if (it.t.length > 60) errors.push(`${where}：超過 60 字（${it.t.length}）`);
+      for (const m of it.t.matchAll(/\{([^{}]*)\}/g)) if (!ENDING_PLACEHOLDERS.includes(m[1])) errors.push(`${where}：不認得的佔位符 {${m[1]}}`);
+      if (it.t.includes('{科系}') && !/科系/.test(it.if || '')) errors.push(`${where}：用了 {科系}，條件要含 科系（直接就業與重考沒有科系）`);
+    }
+    if (it.w != null && !(it.w > 0)) errors.push(`${where}：權重要大於 0`);
+  };
+  const pool = (arr, where, min) => {
+    if (!Array.isArray(arr)) { errors.push(`${where}：不是陣列`); return; }
+    if (!arr.some((x) => !x.if)) errors.push(`${where}：沒有無條件的後備`);
+    if (arr.length < min) errors.push(`${where}：至少要 ${min} 句（現有 ${arr.length}）`);
+    arr.forEach((x, i) => chk(x, `${where} #${i}`));
+  };
+  for (const [age, names] of Object.entries(FACETS)) for (const f of names) pool(E.facets?.[age]?.[f], `終局 ${age} 歲／${f}`, 6);
+  pool(E.good, '終局 good', 12); pool(E.regret, '終局 regret', 12);
+  const turns = E.turns || [], ids = new Set();
+  if (turns.length < 20) errors.push(`終局 turns：至少要 20 個（現有 ${turns.length}）`);
+  turns.forEach((x, i) => {
+    const W = `終局 turn ${x.id || i}`;
+    if (!x.id || ids.has(x.id)) errors.push(`${W}：id 缺少或重複`);
+    ids.add(x.id);
+    if (x.tag && !TURN_TAGS.includes(x.tag)) errors.push(`${W}：tag「${x.tag}」不在 TURN_TAGS`);
+    chk(x, W);
+  });
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

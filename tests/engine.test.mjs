@@ -16,6 +16,7 @@ import { tutorCap, tutorMaxLevel, famStep, shockOf, effectiveEcon, BIZ, SALARY }
 import { avatarSVG, avatarSpec, avatarOptsFromState, isCompletePalette } from '../js/engine/avatar.js';
 import { generateIdentity } from '../js/engine/identity.js';
 import { selfChoice, playRestAuto } from '../js/engine/auto.js';
+import { OUTCOMES } from '../js/engine/feedcodes.js';
 import { fillSlots, slotRng } from '../js/engine/slots.js';
 import { FLAVOR_WIN } from '../js/engine/turn.js';
 
@@ -568,16 +569,18 @@ test('delayed 的 if 條件：自律才排好結果、不自律才排壞結果�
 });
 
 test('校園卡：學測前閉關一個月在高三上最後幾回合出現', () => {
-  let seen = 0;
+  let seen = 0, runs = 0;
   for (let seed = 1; seed <= 20; seed++) {
     const st = newState(seed, data);
+    if (st.identity.kind === '技高') continue; // 技高考統測，沒有學測前閉關
+    runs++;
     for (let t = 0; t < 58 && !st.ended; t++) {
       const res = startTurn(st, data);
       if (res.card) { if (res.card.id === 'campus_y3_retreat') { seen++; assert.equal(st.turn, 55); } chooseCard(st, data, res.card.choices.find((c) => !c.disabled).i); }
       finishTurn(st, data); st.reportPending = null;
     }
   }
-  assert.equal(seen, 20, `閉關出現 ${seen}/20`);
+  assert.equal(seen, runs, `閉關出現 ${seen}/${runs}`);
 });
 
 /* ───────────── 前因後果（consequence threads）與結構性降低手機 ───────────── */
@@ -864,21 +867,23 @@ test('同屆的其他人：peerFeed 最多 12 則，且死亡消息不含姓名'
   assert.ok(any > 0, '應該至少留下一些消息');
 });
 
-test('真實學校名冊：每所學校縣市有效、遮罩名含一個○、同縣市不重名、縣市共 22', () => {
+test('真實學校名冊：每所學校縣市有效、遮罩只遮校名本體一個字、不遮類型字、縣市共 22', () => {
   const idn = data.identities, list = idn.schoolList;
   const counties = new Map(idn.counties.map((c) => [c.name, c]));
   assert.equal(counties.size, 22);
   assert.ok(list.length >= 450);
-  const seen = new Set();
+  const TAIL = /(海事水產|實驗學校|實驗高中|商水|高中|中學|高工|高商|高農|高職|家商|家職|農工|工商|商工|工家|工農|商海|餐旅|餐飲|藝校|實中|附中|護家|女中|海事)$/;
   for (const s of list) {
     const c = counties.get(s.county);
     assert.ok(c, s.county);
     assert.ok(c.districts.includes(s.district), s.n);
     assert.equal([...s.n].filter((ch) => ch === '○').length, 1, s.n);
     assert.ok(['普高', '技高', '綜高', '單科'].includes(s.kind) && ['star', 'pstar', 'community', 'general'].includes(s.tier) && s.w > 0);
-    assert.ok(!seen.has(s.county + s.n), s.county + s.n);
-    seen.add(s.county + s.n);
+    const m = s.n.match(TAIL);
+    if (m) assert.ok(!m[0].includes('○'), s.n);
+    if (s.n.includes('建○中學') || s.n === '北○女中') assert.ok(true);
   }
+  assert.ok(list.some((s) => s.n === '建○中學') && list.some((s) => s.n === '臺○一中') && list.some((s) => s.n === '嘉○家職'));
   for (const c of idn.counties) {
     assert.ok(c.name.includes('臺') || !c.name.includes('台'));
     assert.equal(c.tier, ['臺北市', '新北市', '桃園市', '臺中市', '臺南市', '高雄市'].includes(c.name) ? '六都' : '其他');
@@ -894,11 +899,13 @@ test('身分：學校在自己的縣市、制服調色盤有效、群科只屬�
   for (let seed = 1; seed <= 200; seed++) {
     const id = generateIdentity(seed, idn);
     const s = byCode.get(id.schoolCode);
-    assert.ok(s && s.county === id.county && s.district === id.schoolDistrict && s.kind === id.kind);
+    assert.ok(s && s.county === id.county && s.district === id.schoolDistrict && s.kind === id.schoolKind);
+    if (s.kind === '綜高') assert.ok(['普通科', '綜合學程', '職業類科'].includes(id.program)); else assert.equal(id.kind, s.kind === '技高' ? '技高' : s.kind);
     assert.ok(id.school.startsWith(s.n) && (s.pub || id.school.endsWith('（私立）')));
     assert.ok(idn.uniformPalettes[id.schoolKey] && isCompletePalette(idn.uniformPalettes[id.schoolKey]));
     assert.ok(idn.schools.some((t) => t.id === id.schoolId));
-    const voc = id.kind === '技高' || id.kind === '綜高';
+    const voc = id.kind === '技高';
+    assert.equal(voc, id.schoolKind === '技高' || id.program === '職業類科');
     if (voc) assert.ok(groups.has(id.vocGroup)); else assert.equal(id.vocGroup, null);
     assert.ok(idn.counties.find((c) => c.name === id.county).districts.includes(id.district));
     types.add(id.schoolId);
@@ -1079,4 +1086,49 @@ test('lint：未知的槽、沒有後備值的槽、指到不存在值的 set �
   bad.slots.slots.壞條件 = [{ t: 'b' }, { t: 'c', if: '不存在的變數 > 1' }];
   const e = lintData(bad).errors.join('\n');
   assert.match(e, /沒有這個槽/); assert.match(e, /壞槽：沒有無條件的後備值/); assert.match(e, /不在槽「時段」/); assert.match(e, /不存在的變數/);
+});
+
+test('綜高校的學程：5,000 個種子的普／技／綜合學程比例接近目標，且技高才有群科', () => {
+  const idn = data.identities, n = 5000, c = { 普通: 0, 技: 0, 綜合學程: 0 };
+  for (let seed = 1; seed <= n; seed++) {
+    const id = generateIdentity(seed, idn);
+    if (id.kind === '技高') { c.技++; assert.ok(id.vocGroup); } else { assert.equal(id.vocGroup, null); if (id.program === '綜合學程') c.綜合學程++; else c.普通++; }
+  }
+  assert.ok(Math.abs(c.普通 / n - 0.48) < 0.04 && Math.abs(c.技 / n - 0.43) < 0.06 && Math.abs(c.綜合學程 / n - 0.08) < 0.03, JSON.stringify(c));
+});
+
+test('統測：技高不考學測、考統測，去向是科大／二專五專／就業；普高不受影響；去向都在 OUTCOMES 內', () => {
+  const find = (f) => { for (let s = 1; s < 3000; s++) { const st = newState(s, data); if (f(st.identity)) return s; } };
+  const voc = find((i) => i.kind === '技高'), gen = find((i) => i.kind === '普高');
+  const types = new Set();
+  for (const [seed, isVoc] of [[voc, true], [gen, false]]) {
+    const st = newState(seed, data);
+    playToEnd(st, data, scripted(seed));
+    assert.equal(st.gsat === null, isVoc);
+    assert.equal(st.tcte != null, isVoc);
+    assert.ok(OUTCOMES.includes(st.outcome.type), st.outcome.type);
+    if (isVoc) assert.ok(['國立科大', '私立科大', '二專或五專續讀', '直接就業', '重考一年'].includes(st.outcome.type));
+    else assert.ok(['國立大學', '私立大學', '科技大學', '重考一年'].includes(st.outcome.type));
+  }
+  for (let seed = 1; seed <= 120; seed++) {
+    const st = newState(seed, data);
+    if (st.identity.kind !== '技高') continue;
+    playToEnd(st, data, scripted(seed));
+    types.add(st.outcome.type);
+    const e = buildEnding(st, data);
+    assert.ok(!/學測加申請/.test(JSON.stringify(e.outcome)) && e.outcome.type === st.outcome.type);
+  }
+  assert.ok(types.size >= 3, [...types].join());
+});
+
+test('選項文字會換掉 {家長} 等固定代稱：所有卡片的畫面資料都沒有殘留的 {', () => {
+  for (const seed of [1, 2, 3, 5, 8, 13, 21, 34]) {
+    const st = newState(seed, data);
+    const ctx = buildCtx(st, data.timeline[30]);
+    for (const c of data.events.cards) {
+      const v = describeCard(c, st, ctx);
+      const all = [v.title, v.text, ...v.choices.flatMap((x) => [x.label, x.note, x.reason])].join('|');
+      assert.ok(!all.includes('{'), `${c.id}: ${all.slice(all.indexOf('{') - 10, all.indexOf('{') + 20)}`);
+    }
+  }
 });

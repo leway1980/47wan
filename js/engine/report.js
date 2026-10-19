@@ -27,7 +27,42 @@ const DEPTS = {
   自然學群: ['電機工程系', '物理系', '資訊工程系', '化學系', '醫學檢驗系', '土木工程系'],
   文法商學群: ['企業管理系', '法律系', '社會學系', '歷史系', '外國語文學系', '心理系'],
 };
+// 技高的去向：科系依群科挑，直接就業的單位也依群科
+const VOC_DEPTS = {
+  商業與管理: ['企業管理系', '會計系', '國際貿易系', '行銷與流通管理系'], 電機與電子: ['電機工程系', '電子工程系', '資訊工程系'],
+  餐旅: ['餐旅管理系', '廚藝系', '烘焙系'], 機械: ['機械工程系', '模具工程系', '機電工程系'], 動力機械: ['車輛工程系', '機械工程系'],
+  設計: ['視覺傳達設計系', '商業設計系', '室內設計系'], 家政: ['幼兒保育系', '餐飲管理系', '時尚設計系'], 外語: ['應用外語系', '觀光系'],
+  化工: ['化學工程系', '材料工程系'], 土木與建築: ['土木工程系', '建築系'], 農業: ['園藝系', '動物科學系'], 食品: ['食品科學系'], 水產: ['水產養殖系', '海洋休閒系'],
+};
+const VOC_WORK = {
+  商業與管理: '公司的行政或會計部門', 電機與電子: '科技廠或電機公司', 餐旅: '飯店或餐廳', 機械: '工廠', 動力機械: '汽機車保修廠', 設計: '設計公司',
+  家政: '幼兒園或餐飲業', 外語: '貿易公司或旅遊業', 化工: '化工廠', 土木與建築: '營造公司', 農業: '農場或農企業', 食品: '食品工廠', 水產: '水產公司或漁業單位',
+};
+export function computeOutcomeVoc(st) {
+  const f = st.flags, grp = st.identity.vocGroup || '商業與管理';
+  const test = 25 + 0.75 * (st.final ?? st.tcte ?? st.stats.理解);
+  const ex = st.examScores && st.examScores.length ? st.examScores.reduce((a, b) => a + b, 0) / st.examScores.length : test;
+  const s = 0.6 * test + 0.4 * ex + (f.申請多 ? 2 : f.申請少 ? -3 : 0);
+  const u = rngAt(st.seed, 99, 'final'), uw = rngAt(st.seed, 97, 'vocwork');
+  const dl = VOC_DEPTS[grp] || VOC_DEPTS.商業與管理;
+  const dept = dl[Math.floor(rngAt(st.seed, 98, 'dept') * dl.length)];
+  // 直接就業：基本約一成，有建教合作、實習認真、家境吃緊、分數偏低的人比較高
+  const pWork = 0.08 + (f.建教合作 ? 0.14 : 0) + (f.實習認真 ? 0.04 : 0) + (st.identity.family.econ === '吃緊' ? 0.05 : 0) + (s < 45 ? 0.04 : 0);
+  let type;
+  if (uw < pWork) type = '直接就業';
+  else if (s >= 68 && ex >= 55) type = '國立科大';
+  else if (s >= 50) type = '私立科大';
+  else if (s >= 40) type = u < 0.18 ? '二專或五專續讀' : '私立科大';
+  else type = u < 0.35 ? '重考一年' : u < 0.7 ? '二專或五專續讀' : '私立科大';
+  const retake = type === '重考一年';
+  const work = VOC_WORK[grp] || '業界';
+  const text = retake ? '這次沒有上到想去的學校，你決定重考一年。'
+    : type === '直接就業' ? (f.建教合作 ? `實習單位留用你，畢業後直接到${work}上班。` : `你決定畢業後直接進入業界，到${work}上班。`)
+    : type === '二專或五專續讀' ? `你錄取了二專的${dept}，把專業再學深兩年。` : `你錄取了${type}的${dept}。`;
+  return { type, dept, group: grp, retake, text, score: Math.round(s) };
+}
 export function computeOutcome(st) {
+  if (st.identity.kind === '技高') return computeOutcomeVoc(st);
   // 升學結果 = 學測／申請表現（換算成段考的分數尺度）六成 + 三年段考平均四成
   // 段考常常不及格的人，幾乎不可能上國立大學
   const test = 25 + 0.75 * (st.final ?? st.gsat ?? st.stats.理解);
@@ -159,17 +194,18 @@ function pickArchetype(st, a) {
   return best;
 }
 
-function outcomeLine(o) {
-  return o.retake ? o.text : `學測加申請，${o.text}`;
+function outcomeLine(o, voc) {
+  return o.retake || o.type === '直接就業' ? o.text : voc ? `統測加甄選，${o.text}` : `學測加申請，${o.text}`;
 }
 
 function archetypeText(k, v) {
-  const { name, friend, school, o, dept, county } = v;
-  const univ = o.retake ? '重考後的學校' : `${o.type}${dept}`;
+  const { name, friend, school, o, dept, county, voc } = v;
+  const univ = o.retake ? '重考後的學校' : o.type === '直接就業' ? o.text : `${o.type}${dept}`;
+  const outcomeLine_ = (oo) => outcomeLine(oo, voc);
   const T = {
     A: {
       tag: '穩定自律型', line: '沒有很亮眼，但每一步都踩得到。',
-      a18: `${outcomeLine(o)}學習歷程裡，你寫了自己讀書、運動、睡覺的方式，面試時被問到的內容你都答得出來。`,
+      a18: `${outcomeLine_(o)}學習歷程裡，你寫了自己讀書、運動、睡覺的方式，面試時被問到的內容你都答得出來。`,
       a22: `大學畢業那天，${friend}從別的城市傳訊息給你。你習慣十二點前睡，課業很穩，但不算頂尖。你決定繼續進修。`,
       a25: `身體：每週運動兩次，坐太久會腰痠。工作：上手很快，同事說你「先自己做一次再問人」。錢：每月固定存一筆。人際：同事很多，真正會約吃飯的是兩個，高中那個${friend}還在。`,
       a30: '你升成小組長。壓力最大的那年，你發現自己睡前又開始滑手機，就像很多年前的高二。你把充電器移到客廳。生活不算精彩，但你很少在早上覺得「不想醒來」。',
@@ -177,7 +213,7 @@ function archetypeText(k, v) {
     },
     B: {
       tag: '社交型', line: '朋友很多，日子平平。',
-      a18: `${outcomeLine(o)}學習歷程很豐富：班上活動、社團成發，面試時你最自在。`,
+      a18: `${outcomeLine_(o)}學習歷程很豐富：班上活動、社團成發，面試時你最自在。`,
       a22: `畢業那天你拍了 300 張照片，限動被按了 200 多個愛心。晚上回到租屋處，你卻想不起上一次和人好好聊到半夜是什麼時候。`,
       a25: `身體：常熬夜，手搖飲一天一杯。學習力：遇到要自己讀的東西會拖，習慣先問人。工作：做業務，很會開發客戶，但不太會整理資料。錢：聚餐旅行花很多，月底常常歸零。人際：手機裡有上千個聯絡人，真正心情不好時會打的，有一個高中同學${friend}。`,
       a30: '你成了業務小主管，帶三個新人，你很會帶氣氛。公司導入新系統那年，你花了比別人久的時間才學會。生活很熱鬧，自評「普通」：沒有大失敗，也說不上滿意。',
@@ -185,7 +221,7 @@ function archetypeText(k, v) {
     },
     C: {
       tag: '遊戲牽掛型', line: '人在教室，心在副本。',
-      a18: `${outcomeLine(o)}你不太記得最後半年是怎麼讀的，只記得每天上課都想著晚上的活動。`,
+      a18: `${outcomeLine_(o)}你不太記得最後半年是怎麼讀的，只記得每天上課都想著晚上的活動。`,
       a22: `大學四年你換了兩次遊戲，也換了一次系。你交到的朋友，很多是線上認識的，你們到現在還會約打球。`,
       a25: `身體：視力退到近視 600 度，肩頸很硬。學習力：能專心的時候很強，但很難專心的時候也很明顯。工作：第一份工作做了一年就離職，第二份在遊戲相關公司，這次你把「想玩」變成了工作。錢：薪水不錯，但抽卡花了不少。人際：同事都是玩家，聊得來。`,
       a30: '你在遊戲公司做企劃，終於知道每日登入、限時活動是怎麼設計出來的。你開始懂得「玩」和「被牽著走」的差別，也開始把時間分給運動和家人。',
@@ -193,7 +229,7 @@ function archetypeText(k, v) {
     },
     D: {
       tag: '補習全包型', line: '每一堂課都聽了，但好像什麼都沒留下。',
-      a18: `${outcomeLine(o)}你每個學期都拿了補習班的講義回家，成績一直不錯，但面試時被問到「為什麼這樣做」，你有些答不上來。`,
+      a18: `${outcomeLine_(o)}你每個學期都拿了補習班的講義回家，成績一直不錯，但面試時被問到「為什麼這樣做」，你有些答不上來。`,
       a22: `大學畢業時你才發現，沒有補習班排好的進度，你不太知道怎麼開始。大三開始，你學著自己列出讀書清單，慢慢才上軌道。`,
       a25: `身體：睡眠一直不太夠，胃不太好。學習力：你學會了把「聽懂」和「自己會」分開，每次學新東西都先做練習。工作：穩定的辦公室工作。錢：存了一點。人際：高中補習班的朋友至今偶爾聊天。`,
       a30: '你自己帶新人，最常說的一句話是「先自己做一次，不懂再問」。你終於把當年補習班沒教你的那一課補回來了。',
@@ -201,7 +237,7 @@ function archetypeText(k, v) {
     },
     F: {
       tag: '什麼都沾一點型', line: '每個社團都去過，履歷很長。',
-      a18: `${outcomeLine(o)}你的學習歷程五花八門：營隊、社團、志工，面試時你每個都有故事可以講。`,
+      a18: `${outcomeLine_(o)}你的學習歷程五花八門：營隊、社團、志工，面試時你每個都有故事可以講。`,
       a22: `大學你換了兩次系，最後選了${dept}。你的朋友圈很雜，你很會在不同圈子之間當橋樑。`,
       a25: `身體：沒有特別大的問題，運動時有時無。學習力：學東西很快，但常常學一半就換下一個。工作：在一間小公司做專案，什麼都要會一點。錢：普通。人際：朋友很多，有幾個很談得來。`,
       a30: '你成了公司裡「什麼都會一點」的人，被叫去救火的次數很多。你開始想：要不要選一件事，做深一點？',
@@ -209,7 +245,7 @@ function archetypeText(k, v) {
     },
     G: {
       tag: '大器晚成型', line: '高中很平凡，大學才開竅。',
-      a18: `${outcomeLine(o)}你的高一過得迷迷糊糊，高三才開始真正讀進去，進步幅度讓老師很驚訝。`,
+      a18: `${outcomeLine_(o)}你的高一過得迷迷糊糊，高三才開始真正讀進去，進步幅度讓老師很驚訝。`,
       a22: `大學畢業時，你的成績比同學們預期的好很多。你說，你只是終於找到自己讀書的方法。`,
       a25: `身體：作息比高中穩定多了。學習力：你相信自己「可以慢慢變好」。工作：進了一間你喜歡的公司，雖然起薪普通，但學得很快。錢：開始存。人際：高中那個一起混過的朋友${friend}，仍然是你最想分享好消息的人。`,
       a30: '你回頭看，覺得高中那些走了遠路的日子，後來全變成了養分。',
@@ -217,6 +253,16 @@ function archetypeText(k, v) {
     },
   };
   const t = T[k];
+  if (voc) { // 技高：備審資料、科大、就業的說法
+    const work = o.type === '直接就業', U = work ? '工作' : '科大';
+    for (const key of ['a18', 'a22', 'a30']) {
+      t[key] = t[key].replaceAll('學習歷程', '備審資料')
+        .replaceAll('大學畢業那天', work ? '工作滿四年那天' : '科大畢業那天').replaceAll('大學畢業時', work ? '工作滿四年時' : '科大畢業時')
+        .replaceAll('大學四年', work ? '進業界這幾年' : '科大四年').replaceAll('大三開始', work ? '第三年開始' : '大三開始')
+        .replaceAll('大學你換了兩次系，最後選了' + dept, work ? '你在業界換了兩次部門，最後做了' + dept.replace(/系$/, '') + '相關的工作' : '科大你換了兩次系，最後選了' + dept)
+        .replaceAll('換了一次系', work ? '換了一次部門' : '換了一次系').replaceAll('大學才開竅', U + '才開竅');
+    }
+  }
   t.univ = univ;
   return t;
 }
@@ -317,7 +363,7 @@ export function buildEnding(st, data) {
       : nest >= 15000 ? `高中存下的錢，剛好夠你付大一上學期的生活費。`
         : econNow === '吃緊' ? '上大學的第一個月，你就辦了就學貸款，也找了晚上的打工。'
           : '大一開學前，你發現手上幾乎沒有存款，生活費得每個月跟家裡拿。';
-  const txt = archetypeText(k, { name: id.name, friend, school: id.school, o, dept: o.dept, county: id.county });
+  const txt = archetypeText(k, { name: id.name, friend, school: id.school, o, dept: o.dept, county: id.county, voc: id.kind === '技高' });
   return {
     archetype: k, tag: txt.tag, line: txt.line, header, dead: false, outcome: o,
     sections: [

@@ -24,7 +24,7 @@ export const COUNTIES = ['臺北市', '新北市', '桃園市', '臺中市', '�
 export const normCounty = (c) => (typeof c === 'string' ? c.replace(/^台/, '臺') : c);
 /** 去掉「（私立）」等括號，只留校名 */
 export const maskSchool = (s) => String(s || '').replace(/（[^）]*）/g, '');
-export const OUTCOMES = ['國立大學', '私立大學', '科技大學', '重考一年', 'J']; // J = 沒走到畢業（死亡）
+export const OUTCOMES = ['國立大學', '私立大學', '科技大學', '國立科大', '私立科大', '二專或五專續讀', '直接就業', '重考一年', 'J']; // J = 沒走到畢業（死亡）
 
 /** 一個學期（回合 fromTurn 起、toTurn 前）發生的事 → 最多 2 個代碼。st.choices 的 fl 是該選項設下的旗標。 */
 export function semesterCodes(st, fromTurn, toTurn) {

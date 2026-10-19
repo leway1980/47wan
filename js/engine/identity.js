@@ -84,7 +84,10 @@ export function generateIdentity(seed, idn) {
   const rs = mulberry32((seed ^ 0x5bd1e995) >>> 0);
   const struct = rollStructure(rs, idn);
   if (struct.econDown && rs() < struct.econDown) fam.econ = ECONS[Math.min(2, ECONS.indexOf(fam.econ) + 1)]; // 單薪：家境往下一級
-  const vocGroup = sch.kind === '技高' || sch.kind === '綜高' ? pickWeighted(rs, idn.vocGroups, (x) => x.w).n : null;
+  // 綜高校的學生多半讀普通科或綜合學程，只有職業類科的才算技高：學程用獨立亂數流
+  const program = sch.kind === '綜高' ? pickWeighted(mulberry32((seed ^ 0x2c1b3c6d) >>> 0), idn.programs, (x) => x.w).n : sch.kind === '技高' ? '專業群科' : '普通科';
+  const kind = program === '職業類科' || program === '專業群科' ? '技高' : sch.kind === '單科' ? '單科' : '普高';
+  const vocGroup = kind === '技高' ? pickWeighted(rs, idn.vocGroups, (x) => x.w).n : null;
   const style = pick(r, idn.styles);
   const commute = rollCommute(r, idn, county, fam.econ);
   const av = idn.avatar;
@@ -126,7 +129,9 @@ export function generateIdentity(seed, idn) {
     schoolCode: sch.id,
     schoolDistrict: sch.district,
     schoolTier: sch.tier,
-    kind: sch.kind,
+    kind, // 這位學生實際走的路：普高｜技高｜單科（綜高校依 program 歸類）
+    schoolKind: sch.kind,
+    program,
     vocGroup,
     family: {
       support: fam.support,
@@ -149,9 +154,8 @@ export function generateIdentity(seed, idn) {
 }
 
 const KIND_PHRASE = {
-  普高: '和你一樣讀普通高中的大約有一半。',
-  技高: '和你一樣讀技術型高中的大約三成。',
-  綜高: '讀綜合高中的只占少數，你是其中一個。',
+  普高: '和你一樣讀普通高中（含綜合高中的普通科）的大約有一半。',
+  技高: '和你一樣讀技術型高中的大約四成。',
   單科: '讀專門領域單科高中的人很少，你是其中一個。',
 };
 export function openingText(id, idn) {

@@ -300,6 +300,16 @@ function runFixed(st, data, tl, f, r, out) {
     S.心情 = clamp(S.心情 + clamp((score - 60) / 8, -5, 5), 0, 100);
     S.睡眠債 = clamp(S.睡眠債 + 0.3, 0, 10);
     out.lines.push({ d: 1, text: `${f.name}成績出來了：平均 ${score} 分。` });
+  } else if (f.kind === 'gsat' && st.identity.kind === '技高') {
+    out.lines.push({ d: 1, text: '同學在準備學測，你們的統測在四月底。' }); // 技高考的是統測，不是學測
+  } else if (f.kind === 'tcte') {
+    if (st.identity.kind !== '技高') return;
+    // 統測：專業科目＋共同科目，證照與術科練習有加成
+    const bonus = (st.flags.報名證照 ? 2 : 0) + (st.flags.實習認真 ? 2 : 0) + (st.flags.技藝選手 ? 3 : 0);
+    const s = clamp(S.理解 * 0.9 + S.假熟悉 * 0.3 - S.睡眠債 * 0.8 + bonus + gauss(r) * 5, 0, 100);
+    st.tcte = s;
+    out.notices.push({ kind: 'info', title: '統測', text: '兩天的統一入學測驗結束了。成績要過一陣子才公布，接下來是四技二專的甄選和登記分發。' });
+    out.lines.push({ d: 1, text: '統測考完了。' });
   } else if (f.kind === 'gsat') {
     const s = clamp(S.理解 * 0.9 + S.假熟悉 * 0.3 - S.睡眠債 * 0.8 + gauss(r) * 5, 0, 100);
     st.gsat = s;
@@ -307,17 +317,20 @@ function runFixed(st, data, tl, f, r, out) {
     out.notices.push({ kind: 'info', title: '學測', text: `一月的兩天考試結束了。放榜那天，五科合計 ${lv} 級分（滿分 75）。接下來是準備申請入學的資料和面試。` });
     out.lines.push({ d: 1, text: `學測成績出爐：${lv} 級分。` });
   } else if (f.kind === 'apply') {
-    const portfolio = (st.flags['社團:科學'] ? 2 : 0) + (st.flags['社團:音樂'] ? 2 : 0) + (st.flags['社團:運動'] ? 2 : 0) + (st.flags.去過營隊 ? 3 : 0) + (st.flags.社團中 ? 1 : 0);
+    const voc = st.identity.kind === '技高';
+    // 技高的備審看證照與競賽，普高看社團與營隊
+    const portfolio = (st.flags['社團:科學'] ? 2 : 0) + (st.flags['社團:音樂'] ? 2 : 0) + (st.flags['社團:運動'] ? 2 : 0) + (st.flags.去過營隊 ? 3 : 0) + (st.flags.社團中 ? 1 : 0)
+      + (voc ? (st.flags.報名證照 ? 1 : 0) + (st.flags.技藝選手 ? 2 : 0) + (st.flags.實習認真 ? 1 : 0) : 0);
     const penalty = S.露餡 >= 2 ? 4 : 0;
-    st.final = (st.gsat ?? S.理解) + Math.min(portfolio, 6) - penalty + gauss(r) * 4;
+    st.final = (st.tcte ?? st.gsat ?? S.理解) + Math.min(portfolio, 6) - penalty + gauss(r) * 4;
     st.outcome = computeOutcome(st, data);
     const o = st.outcome;
-    let t = `放榜日，你的申請結果出來了：${o.text}`;
-    if (penalty) t += ' 面試時教授問起你學習歷程裡寫過的內容，你答得有點吃力。';
+    let t = voc ? `放榜日，你的四技二專甄選和登記分發結果出來了：${o.text}` : `放榜日，你的申請結果出來了：${o.text}`;
+    if (penalty) t += voc ? ' 面試時教授問起你備審資料裡寫過的內容，你答得有點吃力。' : ' 面試時教授問起你學習歷程裡寫過的內容，你答得有點吃力。';
     out.notices.push({ kind: 'info', title: '放榜', text: t });
-    out.lines.push({ d: 1, text: '申請入學放榜了。' });
+    out.lines.push({ d: 1, text: voc ? '甄選放榜了。' : '申請入學放榜了。' });
   } else if (f.kind === 'fenke') {
-    out.notices.push({ kind: 'info', title: '畢業典禮', text: st.outcome && st.outcome.retake ? '畢業典禮結束後，你沒有跟大家一起去聚餐。你已經決定重考，七月考完分科，就要去補習班租一個位子。' : '畢業典禮那天，大家在校門口拍了很多張照片。你要去的地方已經確定了，回家路上你想起三年來的很多人。' });
+    out.notices.push({ kind: 'info', title: '畢業典禮', text: !st.outcome ? '' : st.outcome.retake ? (st.identity.kind === '技高' ? '畢業典禮結束後，你沒有跟大家一起去聚餐。你已經決定重考，明年再考一次統測，就要去補習班租一個位子。' : '畢業典禮結束後，你沒有跟大家一起去聚餐。你已經決定重考，七月考完分科，就要去補習班租一個位子。') : st.outcome.type === '直接就業' ? '畢業典禮那天，大家在校門口拍了很多張照片。下週你就要到新的單位報到，回家路上你想起三年來的很多人。' : '畢業典禮那天，大家在校門口拍了很多張照片。你要去的地方已經確定了，回家路上你想起三年來的很多人。' });
   }
 }
 

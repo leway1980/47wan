@@ -23,7 +23,8 @@ const SUFFIX = [
   [/商業水產職業學校$/, '商水'], [/高級農業職業學校$/, '高農'], [/高級餐旅職業學校$/, '餐旅'], [/高級職業學校$/, '高職'],
   [/實驗高級中(學|等學校)$/, '實驗高中'], [/女子高級中(學|等學校)$/, '女中'], [/高級中(學|等學校)$/, '高中'],
 ];
-const TAILS = ['商水', '海事水產', '實驗高中', '高中', '中學', '高工', '高商', '高農', '高職', '家商', '農工', '工商', '商工', '工家', '餐旅', '女中'];
+// 校名結尾（類型字）：遮罩不碰這些字，只遮前面「校名本體」的字
+const TAILS = ['海事水產', '實驗學校', '實驗高中', '商水', '高中', '中學', '高工', '高商', '高農', '高職', '家商', '家職', '農工', '工商', '商工', '工家', '工農', '商海', '餐旅', '餐飲', '藝校', '實中', '附中', '護家', '女中', '海事'].sort((a, b) => b.length - a.length);
 
 export function shortName(name) {
   let s = name;
@@ -60,35 +61,23 @@ const out = raw.map((x) => {
   const tier = tag === 'public_star' ? 'star' : tag === 'private_star' ? 'pstar'
     : x.public && x.kind === '普高' && ((x.students > 0 ? x.students : med.普高) < 600 || /[鄉鎮]$/.test(x.district)) ? 'community' : 'general';
   const short = shortName(x.name);
-  return { id: x.code, short, n: mask(short, 1), county: x.county, district: x.district, pub: !!x.public, kind: x.kind, tier, w: x.students > 0 ? x.students : med[x.kind] };
+  return { id: x.code, short, n: short, county: x.county, district: x.district, pub: !!x.public, kind: x.kind, tier, w: x.students > 0 ? x.students : med[x.kind] };
 });
-// 遮罩位置的候選順序：第 2 字、其餘校名本體的字、第 1 字（結尾的「高中／高工…」不遮）。第 2 字是立／市／縣的先排後面。
-const cands = (s) => {
+// 遮罩：遮校名本體（類型字之前）的第 2 個字；本體只有 1 個字就整個換成○；第 2 字是立／市／縣時改遮第 3 個字。同縣市重名沒關係，畫面上旁邊會顯示鄉鎮市區
+const maskName = (s) => {
   const tail = TAILS.find((t) => s.endsWith(t)) || '', stem = s.length - tail.length;
-  const idx = [];
-  for (let i = 1; i < stem; i++) idx.push(i);
-  if (s.length <= 2) idx.length = 0; // 兩個字的校名只能遮第 1 個字
-  idx.push(0);
-  for (let i = stem; i < s.length; i++) idx.push(i);
-  if (/^.[立市縣]/.test(s) && idx[0] === 1) idx.push(idx.shift());
-  return idx;
+  if (stem <= 0) return mask(s, 0);
+  if (stem === 1) return '○' + tail;
+  const at = /^.[立市縣]/.test(s) && stem >= 3 ? 2 : 1;
+  return mask(s, at);
 };
-const report = { bad2: [], moved: [], still: [] };
-const used = new Set();
-for (const s of out) { s.pos = cands(s.short); s.n = mask(s.short, s.pos[0]); }
-// 同縣市遮罩後重名：後面的改遮下一個候選位置
-for (const s of out) {
-  let k = 0;
-  while (used.has(s.county + s.n) && ++k < s.pos.length) s.n = mask(s.short, s.pos[k]);
-  if (used.has(s.county + s.n)) report.still.push(s.short);
-  if (k) report.moved.push(`${s.short}→${s.n}`);
-  used.add(s.county + s.n);
-}
+const report = { bad2: [] };
+for (const s of out) s.n = maskName(s.short);
 for (const s of out) if (/^.[立市縣]/.test(s.short)) report.bad2.push(s.short);
 
-const schools = out.map(({ short, pos, ...s }) => s);
+const schools = out.map(({ short, ...s }) => s);
 const readme = '全臺高中職名冊（483 所；校名遮掉一個字，只暗示不點名）。來源：研究階段整理的全臺高中職名冊與 111 學年學生數（學生數缺漏者用同類型中位數；逐校出處待補）；明星高中標記（star=公立、pstar=私立）為人工整理。'
-  + '規則：n=簡稱後把第 2 個字換成○（同縣市重名改遮其他校名本體的字，結尾的高中／高工等不遮）；kind=普高|技高|綜高|單科；tier=star|pstar|community（公立普高且學生數<600或在鄉鎮）|general；w=學生數（抽籤權重）。'
+  + '規則：n=簡稱後把校名本體（類型字之前）的第 2 個字換成○，結尾的高中／高工等類型字不遮，本體只有 1 字則整個換成○；同縣市可重名（畫面會並列鄉鎮市區）；kind=普高|技高|綜高|單科；tier=star|pstar|community（公立普高且學生數<600或在鄉鎮）|general；w=學生數（抽籤權重）。'
   + '由 tools/build-schools.mjs 產生，執行期不讀該程式。';
 writeFileSync(join(ROOT, 'data', 'schools.json'), `{\n "_readme": ${JSON.stringify(readme)},\n "schools": [\n${schools.map((x) => '  ' + JSON.stringify(x)).join(',\n')}\n ]\n}\n`);
 
@@ -96,6 +85,4 @@ const cnt = (f) => schools.filter(f).length;
 console.log(`學校 ${schools.length}；star ${cnt((s) => s.tier === 'star')}、pstar ${cnt((s) => s.tier === 'pstar')}、community ${cnt((s) => s.tier === 'community')}、general ${cnt((s) => s.tier === 'general')}`);
 console.log('類型：' + ['普高', '技高', '綜高', '單科'].map((k) => `${k} ${cnt((s) => s.kind === k)}`).join('、'));
 if (report.bad2.length) console.log('第 2 字為 立/市/縣：', report.bad2.join('、'));
-if (report.moved.length) console.log('同縣市重名、改遮其他位置：', report.moved.join('、'));
-if (report.still.length) console.log('遮罩後仍重名：', report.still.join('、'));
 if (process.env.SAMPLE) for (const s of out) console.log(`${s.short}\t${s.n}\t${s.county}${s.district}\t${s.kind}\t${s.tier}`);

@@ -1,0 +1,19 @@
+-- 匿名統計：只存遊戲進度與驗證過的白名單欄位。可重複執行。
+CREATE TABLE IF NOT EXISTS games (
+  id TEXT PRIMARY KEY,
+  started INTEGER NOT NULL,
+  last INTEGER NOT NULL,
+  ended INTEGER,
+  outcome TEXT,
+  n INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS games_last ON games(last);
+CREATE TABLE IF NOT EXISTS feed (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  t INTEGER NOT NULL,
+  sem INTEGER NOT NULL,
+  c TEXT NOT NULL,
+  s TEXT NOT NULL,
+  nm TEXT NOT NULL,
+  ev TEXT NOT NULL
+);

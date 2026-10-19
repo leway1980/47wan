@@ -54,3 +54,7 @@
 
 - 測試：專案根目錄 `node --test tests/`（含 worker 邏輯，用 Node 內建 sqlite 假冒 D1）。
 - 本機試跑：`cd worker && npm ci`，將 `wrangler.toml.template` 複製成 `wrangler.toml` 並把 `__D1_ID__`、`__KV_ID__` 換成任意值，執行 `npx wrangler d1 execute wan47 --local --file schema.sql` 與 `npx wrangler dev --local`。
+
+## 怎麼確認部署成功
+
+到 GitHub 的 47wan → Actions → deploy-stats，最新一次是綠色勾勾，而且 `data/server.json` 裡出現 `https://wan47-stats.….workers.dev` 網址，就代表上線了。之後改動 `worker/` 底下的檔案會自動重新部署。

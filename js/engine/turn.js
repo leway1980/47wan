@@ -4,6 +4,7 @@ import { mulberry32, stateRng, rngAt, gauss, pickWeighted, clamp } from './rng.j
 import { tutorMaxLevel, tutorIsFree, famStep } from './family.js';
 import { buildCtx, drawCard, drawDatingCard, ensurePartner, fill, describeCard, applyChoice, applyEffects, cardById, evalCond, compile, passes } from './events.js';
 import { checkLife, DEATH_LINE } from './life.js';
+import { setSlotData } from './slots.js';
 import { stepPeers } from './peers.js';
 import { computeOutcome, semesterReport, formatDate, formatDateLong } from './report.js';
 
@@ -53,8 +54,9 @@ export function prepareData(raw) {
     if (cardIndex[c.id]) throw new Error('重複的事件卡 id: ' + c.id);
     cardIndex[c.id] = c;
   }
+  setSlotData(raw.slots); // 變數槽的池（沒有就視為空，槽會被去掉而不是露出原始標記）
   const life = { events: raw.life_events.events, byId: Object.fromEntries(raw.life_events.events.map((e) => [e.id, e])) };
-  return { identities: { ...raw.identities, schoolList: raw.schools.schools }, events: raw.events, calendar: raw.calendar, life, cardIndex, timeline: buildTimeline(raw.calendar) };
+  return { identities: { ...raw.identities, schoolList: raw.schools.schools }, events: raw.events, calendar: raw.calendar, slots: raw.slots, life, cardIndex, timeline: buildTimeline(raw.calendar) };
 }
 
 /* ───────────── 習慣自動結算 ───────────── */
@@ -69,28 +71,42 @@ const COVER = { 自己就是資源: 0.4, 花錢買資源: 0.7, 自己找資源: 
 
 const IG_LOOK_LINES = ['你的自拍被很多人按愛心。', '有人在你的貼文留言「今天好好看」，你笑了一下。', '隔壁班有人私訊說想認識你。'];
 const NET_LINES = [
-  ['{網友}傳來一句「早安，今天也要加油喔」。', '{網友}問你今天考試考得怎麼樣，還記得你昨天說的事。', '你和{網友}在遊戲裡組隊打了兩場，他一直幫你補血。', '{網友}說他也是高中生，也很討厭數學。'],
-  ['{網友}每天晚上都會傳「晚安」，你開始會等他的訊息。', '你跟家人吵架，第一個想到的是傳訊息給{網友}。', '{網友}說：「你是我在這裡最好的朋友。」', '{網友}記得你的生日，傳了一張自己畫的卡片。'],
+  ['{網友}傳來一句「早安，今天也要加油喔」。', '{網友}問你今天{科目}考得怎麼樣，還記得你昨天說的事。', '你和{網友}在遊戲裡組隊打了兩場，他一直幫你補血。', '{網友}說他也是高中生，也很討厭{科目}。'],
+  ['{網友}每天晚上都會傳「晚安」，你開始會等他的訊息。', '你跟家人吵架，第一個想到的是傳訊息給{網友}。', '{網友}說：「你是我在這裡最好的朋友。」', '{網友}記得你的生日，傳了一張自己畫的卡片。', '{網友}傳了一張{手搖飲}的照片：「下次請你喝」。'],
   ['{網友}說最近家裡有點狀況，心情很差。', '{網友}傳來一段很長的訊息，說只有你懂他。', '{網友}說想跟你一起做一件「很酷的事」，之後再告訴你。', '{網友}說他找到一個賺點數的好方法，下次教你。'],
 ];
-const IG_LINES = ['你的限動被 23 個人看過，有 2 個人回覆。', '有人在限動 tag 你，你想了一下要怎麼回。', '同學私訊你：「在嗎？」你回完已經過了半小時。', '你滑了別人的出遊限動十分鐘。', '群組裡有人問你怎麼都沒回限動。', '有人按了你半年前的貼文愛心，你有點在意。', '你看到同學一起去吃飯的限動，你不在裡面。', '新追蹤你的人說是隔壁班的，你回追了。'];
-const GAME_LINES = ['每日任務還沒解完，你先上線點一下。', '限時活動只剩三天，你又打開了遊戲。', '公會群組在討論週末的團戰時間，你被 tag 了。', '登入送十抽，你捨不得不領。', '體力條滿了，你找理由再上去一下。', '朋友說副本差一個人，你的手已經在滑。', '公會長在群組發了新的打寶表，問大家誰有空。', '同學在玩新出的音樂節奏手遊，你也下載來試了一下。', '午休時大家在玩同一款手遊的對戰，你被拉進來湊人數。', '遊戲更新要下載 3GB，你在學校用熱點偷偷載。', '你在遊戲裡抽到一隻稀有角色，截圖傳到班群。', '寒流來的晚上，你窩在被子裡打了三場排位。', '有人在公會群組賣帳號，大家吵了一晚。', '你把遊戲裡的寵物取了跟家裡的貓一樣的名字。']
+const IG_LINES = ['你的限動被 23 個人看過，有 2 個人回覆。', '有人在限動 tag 你，你想了一下要怎麼回。', '同學私訊你：「在嗎？」你回完已經過了半小時。', '你滑了別人的出遊限動十分鐘。', '{群組}裡有人問你怎麼都沒回限動。', '有人按了你半年前的貼文愛心，你有點在意。', '你看到同學一起去吃飯的限動，你不在裡面。', '新追蹤你的人說是隔壁班的，你回追了。', '{旁人}的限動全是{手搖飲}，你按了愛心。', '你在{下課時間}回完三則 IG 訊息。', '你發了一張{零食}的限動，有 5 個人回「想吃」。', '{同學}在限動 tag 你，你們在{地點}的合照糊成一團。', '你滑到一則{科目}梗圖，轉傳給{同學}。', '{旁人}發限動抱怨今天的{科目}課，你按了愛心。', '你在{地點}拍了一張{手搖飲}的照片，修了三次才發。', '{旁人}按了你的限動，你不確定是不是故意的。', '你發的限動被{同學}截圖，傳到了{群組}。', '你追蹤的帳號今天貼了一堆{零食}開箱。', '{同學}的限動是{地點}的夕陽，你也想去。', '你打了一段回覆又刪掉，最後只按了愛心。', '有人私訊問你{科目}的{作業類}，你回了一個貼圖。', '你點進一個陌生帳號的限動，發現是學長姐。', '你的限動停在 18 個人看過，重新整理了好幾次。'];
+const GAME_LINES = ['每日任務還沒解完，你先上線點一下。', '限時活動只剩三天，你又打開了遊戲。', '公會群組在討論週末的{遊戲事}時間，你被 tag 了。', '登入送十抽，你捨不得不領。', '體力條滿了，你找理由再上去一下。', '朋友說副本差一個人，你的手已經在滑。', '公會長在群組發了新的打寶表，問大家誰有空。', '同學在玩新出的音樂節奏手遊，你也下載來試了一下。', '午休時大家在玩同一款手遊的對戰，你被拉進來湊人數。', '遊戲更新要下載 3GB，你在學校用熱點偷偷載。', '你在遊戲裡抽到一隻稀有角色，截圖傳到班群。', '寒流來的晚上，你窩在被子裡打了三場排位。', '有人在公會群組賣帳號，大家吵了一晚。', '你把遊戲裡的寵物取了跟家裡的貓一樣的名字。', '{旁人}在{地點}聊昨晚的{遊戲事}，你插了兩句。', '{遊戲事}拖到{時段}還沒結束，你說再一場就好。', '你用{下課時間}把今天的日常任務刷完了。', '你在{科目}課偷偷看了一眼{遊戲事}的倒數。', '{旁人}說{遊戲事}的新角色太強，你回家馬上查了攻略。', '你在{地點}用手機打完一場排位，鐘響才發現。', '公會裡有人在{時段}還在線上，你默默看著名單。', '{遊戲事}的獎勵你差一點就拿到，隔天還是氣得睡不著。', '你把買{手搖飲}的錢省下來，拿去抽了一次。', '{科目}課的空檔，你把隊伍配置改了三次。', '你的隊友在{時段}突然斷線，剩你一個人撐完。', '{同學}借你的帳號練了一場，結果段位掉了一階。', '你關掉遊戲，十分鐘後又重新打開。', '你點開{遊戲事}的攻略影片，一看就是半小時。', '新的活動包下載完，手機只剩一格電。']
 // 交往中每回合固定出現的相處小事：好處是心情與知心，代價是專注與睡眠（時間與手機）
 export const COUPLE_LINES = [
   { t: '放學一起走到公車站，{對象}把耳機分你一邊。', mood: 1.2, know: 0.05, focus: 0.3 },
   { t: '睡前視訊講了一小時，掛掉才發現已經過了十二點。', mood: 1, know: 0.06, focus: 0.8, sleep: 0.25 },
-  { t: '{對象}傳了一張你上課打瞌睡的照片，附上「睡得很香喔」。', mood: 0.8, know: 0.04, focus: 0.5 },
-  { t: '午餐一起吃，被同學起鬨，你們兩個都低頭扒飯。', mood: 1, know: 0.04, focus: 0.2, link: 0.3 },
+  { t: '{對象}傳了一張你上{科目}課打瞌睡的照片，附上「睡得很香喔」。', mood: 0.8, know: 0.04, focus: 0.5 },
+  { t: '午餐在{地點}一起吃，被同學起鬨，你們兩個都低頭扒飯。', mood: 1, know: 0.04, focus: 0.2, link: 0.3 },
   { t: '下課{對象}繞到你的教室門口，只是來說「午休不要睡過頭」。', mood: 1, know: 0.04, focus: 0.4 },
   { t: '你們傳了一整節課的貼圖，老師看了你一眼。', mood: 1, know: 0.03, focus: 1.1, sleep: 0.05 },
-  { t: '{對象}幫你留了福利社最後一個麵包。', mood: 1.2, know: 0.04, focus: 0.1 },
+  { t: '{對象}幫你留了福利社最後一包{零食}。', mood: 1.2, know: 0.04, focus: 0.1 },
   { t: '晚上說好只聊五分鐘，結果聊了一個小時。', mood: 1, know: 0.06, focus: 0.6, sleep: 0.2 },
   { t: '{對象}在你的聯絡簿角落畫了一隻很醜的貓。', mood: 0.9, know: 0.03, focus: 0.2 },
   { t: '你們約好各自讀書，卻每隔十分鐘就互丟一張自拍。', mood: 0.8, know: 0.04, focus: 1, sleep: 0.05 },
   { t: '一起等公車，錯過了兩班，誰都沒說要先走。', mood: 1.2, know: 0.05, focus: 0.3 },
   { t: '你在筆記本邊角寫下{對象}的名字，又趕快塗掉。', mood: 0.8, know: 0.02, focus: 0.7 },
-  { t: '{對象}說今天的你看起來很累，硬塞了一罐熱奶茶給你。', mood: 1.2, know: 0.06, focus: 0.1 },
+  { t: '{對象}陪你在{地點}寫{科目}{作業類}，寫沒兩題就開始聊天。', mood: 1, know: 0.05, focus: 0.8 },
+  { t: '你們分了一杯{手搖飲}，一人一根吸管。', mood: 1.1, know: 0.04, focus: 0.2 },
+  { t: '{對象}說下次{小考種類}比分數，輸的請{手搖飲}。', mood: 0.9, know: 0.04, focus: 0.5 },
+  { t: '{對象}說今天的你看起來很累，硬塞了一杯{手搖飲}給你。', mood: 1.2, know: 0.06, focus: 0.1 },
 ];
+// 抽一句不久前沒出現過的：win 回合內用過的不再抽（候選空了就退回全部）。回傳索引並記下這回合用過
+export function freshIdx(st, n, key, salt, win) {
+  const seen = (st.flavorSeen ||= {});
+  const ok = [];
+  for (let i = 0; i < n; i++) { const t = seen[key + i]; if (t === undefined || st.turn - t > win) ok.push(i); }
+  const from = ok.length ? ok : Array.from({ length: n }, (_, i) => i);
+  const i = from[Math.floor(rngAt(st.seed, st.turn, salt) * from.length)];
+  seen[key + i] = st.turn;
+  return i;
+}
+const NOMONEY_LINES = ['月底又沒錢了，只能吃泡麵。', '月底的零用錢見底，{手搖飲}只能用看的。', '錢包空了，你和{同學}分著吃一包{零食}。', '零用錢不夠，你把原本想買的{零食}放回架上。'];
 export const PHONE_CREEP = 0.03; // 每回合手機用量慢慢變多的機率；自然爬升最多到 3 級，4 級只會因為事件
 const CREEP_LINE = '不知不覺，你滑手機的時間又變長了。';
 export function applyHabits(st, data, tl, r) {
@@ -118,6 +134,7 @@ function applyHabitsInner(st, data, tl, r) {
   const S = st.stats, H = st.habits, id = st.identity, idn = data.identities, fam = id.family;
   const vac = tl.vacation, len = vac ? 2 : 1;
   const lines = [];
+  const lctx = buildCtx(st, tl); // 紀錄句的變數槽用
   /* 錢 */
   const econ = idn.econStart[fam.econ];
   const allowance = id.allowanceMonth ?? econ.allowance * 2; // 舊存檔沒有這個欄位
@@ -146,7 +163,7 @@ function applyHabitsInner(st, data, tl, r) {
   S.錢包 = Math.max(0, Math.round(w));
   if (mode === '花掉') {
     S.體力 = clamp(S.體力 - 0.5, 5, 100); // 手搖飲、零食（之後的體力結算會再混合，影響很小）
-    if (S.錢包 < 300 && rngAt(st.seed, st.turn, 'moneyend') < 0.3) { lines.push('月底又沒錢了，只能吃泡麵。'); S.心情 = clamp(S.心情 - 1, 0, 100); }
+    if (S.錢包 < 300 && rngAt(st.seed, st.turn, 'moneyend') < 0.3) { lines.push(fill(NOMONEY_LINES[freshIdx(st, NOMONEY_LINES.length, 'nm', 'nomoney', 1)], st, lctx)); S.心情 = clamp(S.心情 - 1, 0, 100); }
   } else S.幸福 = clamp(S.幸福 + 0.3, 0, 100); // 戶頭有錢的安全感
 
   /* 時間：可自己運用的小時數 */
@@ -223,7 +240,7 @@ function applyHabitsInner(st, data, tl, r) {
   const lv = Math.min(3, Math.round(st.pull));
   if (lv >= 1) {
     for (let i = 0; i < 2; i++) {
-      lines.push(GAME_LINES[Math.floor(rngAt(st.seed, st.turn, 'gline' + i) * GAME_LINES.length)]);
+      lines.push(fill(GAME_LINES[freshIdx(st, GAME_LINES.length, 'gm', 'gline' + i, 5)], st, lctx));
       S.牽掛 = clamp(S.牽掛 + 0.15 + 0.07 * lv, 0, 10);
       S.專注 = clamp(S.專注 - 1, 15, 100);
       S.理解 = clamp(S.理解 - 0.1 * lv, 0, 100);
@@ -234,8 +251,8 @@ function applyHabitsInner(st, data, tl, r) {
   if (st.flags.網友) {
     if (st.netStart == null) st.netStart = st.turn;
     const k = st.turn - st.netStart;
-    const pool = k < 4 ? NET_LINES[0] : k < 8 ? NET_LINES[1] : NET_LINES[2];
-    lines.push(fill(pool[Math.floor(rngAt(st.seed, st.turn, 'net') * pool.length)], st));
+    const tier = k < 4 ? 0 : k < 8 ? 1 : 2, pool = NET_LINES[tier];
+    lines.push(fill(pool[freshIdx(st, pool.length, 'net' + tier + '_', 'net', 1)], st, lctx));
     S.心情 = clamp(S.心情 + 1, 0, 100);
     S.專注 = clamp(S.專注 - 0.5, 15, 100);
     S.牽掛 = clamp(S.牽掛 + 0.1, 0, 10);
@@ -244,9 +261,8 @@ function applyHabitsInner(st, data, tl, r) {
   if (st.flags.IG) {
     const igLv = st.flags.IG常用 ? 2 : 1;
     for (let i = 0; i < 2; i++) {
-      const pick = rngAt(st.seed, st.turn, 'ig' + i);
       const look = st.flags.打扮 && rngAt(st.seed, st.turn, 'iglook' + i) < 0.35;
-      lines.push(look ? IG_LOOK_LINES[Math.floor(pick * IG_LOOK_LINES.length)] : IG_LINES[Math.floor(pick * IG_LINES.length)]);
+      lines.push(fill(look ? IG_LOOK_LINES[freshIdx(st, IG_LOOK_LINES.length, 'igl', 'ig' + i, 1)] : IG_LINES[freshIdx(st, IG_LINES.length, 'ig', 'ig' + i, 4)], st, lctx));
       S.聯繫 = clamp(S.聯繫 + 0.4 * igLv + (look ? 0.3 : 0), 0, 100);
       S.專注 = clamp(S.專注 - 0.6 * igLv, 15, 100);
       if (H.睡前手機) S.睡眠債 = clamp(S.睡眠債 + 0.08 * igLv, 0, 10);
@@ -258,13 +274,9 @@ function applyHabitsInner(st, data, tl, r) {
   if (st.flags.交往中) {
     ensurePartner(st, st.turn, idn);
     const n = rngAt(st.seed, st.turn, 'cpl') < 0.5 ? 2 : 1;
-    const used = [];
     for (let i = 0; i < n; i++) {
-      let k = Math.floor(rngAt(st.seed, st.turn, 'cpl' + i) * COUPLE_LINES.length);
-      while (used.includes(k)) k = (k + 1) % COUPLE_LINES.length;
-      used.push(k);
-      const L = COUPLE_LINES[k];
-      lines.push({ couple: true, text: fill(L.t, st) });
+      const L = COUPLE_LINES[freshIdx(st, COUPLE_LINES.length, 'cp', 'cpl' + i, 5)];
+      lines.push({ couple: true, text: fill(L.t, st, lctx) });
       S.心情 = clamp(S.心情 + L.mood, 0, 100);
       S.知心 = clamp(S.知心 + L.know, 0, 5);
       S.專注 = clamp(S.專注 - L.focus, 15, 100);
@@ -400,13 +412,19 @@ export function skipCard(st) {
 }
 
 /* ───────────── 結束回合 ───────────── */
+export const FLAVOR_WIN = 6; // 風味句：用過之後 6 回合內不再出現
 function flavorLines(st, data, tl, r, n) {
   const ctx = buildCtx(st, tl);
-  const pool = data.calendar.flavor.filter((f) => evalCond(f.if, ctx));
+  // 每句有穩定 id（沒寫就用索引）；FLAVOR_WIN 回合內用過的不再出現，候選不夠才退回全部
+  const seen = (st.flavorSeen ||= {});
+  const all = data.calendar.flavor.map((f, i) => ({ ...f, id: f.id ?? 'fl' + i })).filter((f) => evalCond(f.if, ctx));
+  let pool = all.filter((f) => seen[f.id] === undefined || st.turn - seen[f.id] > FLAVOR_WIN);
+  if (!pool.length) pool = all.slice();
   const out = [];
   for (let i = 0; i < n && pool.length; i++) {
     const f = pickWeighted(r, pool);
-    out.push(f.text);
+    out.push(fill(f.text, st, ctx));
+    seen[f.id] = st.turn;
     pool.splice(pool.indexOf(f), 1);
   }
   return out;

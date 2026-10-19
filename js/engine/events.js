@@ -1,5 +1,6 @@
 // 事件卡：條件求值器（不用 eval）、抽卡、套用選擇。純函式，無 DOM。
 import { pickWeighted, clamp, rngAt } from './rng.js';
+import { fillSlots } from './slots.js';
 
 /* ───────────── 小型條件求值器 ─────────────
    語法：數字、'字串'、變數名(中文可)、#旗標、== != < <= > >=、and or not（也可用 && || !）、括號、true/false */
@@ -125,8 +126,18 @@ export function buildCtx(st, tl) {
     回合: st.turn, 假期: tl ? !!tl.vacation : false, 寒假: tl ? tl.seg === '寒假' : false, 考試週: examNow,
     家裡狀況: (st.fam && st.fam.shock && st.fam.shock.id) || '',
     網友回合: st.netStart == null ? -1 : st.turn - st.netStart,
-    明星: id.schoolTier === 'star' || id.schoolTier === 'pstar', 技高: id.kind === '技高' || id.kind === '綜高', 都會: id.tier === '六都' && id.district.endsWith('區'), 群: id.vocGroup || '', 家庭: id.family.structure, 繼親: id.family.step || '', 同住: id.family.parent,
+    // 變數槽用：技高類科、都會、月份、最弱／最強的科目
+    群: (st.identity.vocGroup || ''), 技高: !!st.identity.vocGroup,
+    都會: id.tier === '六都' && /區$/.test(id.district || ''),
+    月: tl ? new Date(tl.start).getUTCMonth() + 1 : 9,
+    弱科: aptExtreme(id.aptitude, -1), 強科: aptExtreme(id.aptitude, 1),
+    明星: id.schoolTier === 'star' || id.schoolTier === 'pstar', 家庭: id.family.structure, 繼親: id.family.step || '', 同住: id.family.parent,
   };
+}
+// 各科天分裡最弱（dir=-1）或最強（dir=1）的一科；沒有天分資料就回空字串
+function aptExtreme(apt, dir) {
+  const ks = Object.keys(apt || {});
+  return ks.length ? ks.reduce((a, b) => (apt[b] - apt[a]) * dir > 0 ? b : a) : '';
 }
 
 /* ───────────── 效果 ───────────── */
@@ -212,7 +223,8 @@ export function drawDatingCard(st, data, ctx, r) {
 /* ───────────── 把卡片轉成顯示用資料 ───────────── */
 // IG 上認識的人用帳號名稱稱呼，不直接叫「網友」（玩家才不會一開始就起戒心）
 const NET_HANDLES = ['@mia.0927', '@yu_ting.lin', '@kai__chen', '@sunny_hsu', '@leo.wu_17', '@chloe.tw', '@a_ming.zz', '@rainy.day04', '@jason_lee.08', '@pinpin.0612'];
-export function fill(text, st) {
+export function fill(text, st, ctx, scope) {
+  if (ctx && text && text.includes('{')) text = fillSlots(text, st, ctx, null, scope || {}); // 變數槽先換，槽值裡可再含 {同學} 等
   const friend = st.peers.known[0]?.name || '同學';
   if (!st.netName) st.netName = NET_HANDLES[Math.floor(rngAt(st.seed, 7, 'nethandle') * NET_HANDLES.length)];
   text = text.replace(/\{網友\}/g, st.netName);
@@ -246,9 +258,16 @@ export function pickText(card, ctx, st) {
   return card.text;
 }
 
+// 同一張卡的內文與選擇後的結果共用同一組槽值（內文說「數學」，結果也要是「數學」）
+export function cardScope(st, cardId) {
+  const k = cardId + '@' + st.turn;
+  if (!st.cardScope || st.cardScope.k !== k) st.cardScope = { k, v: {} };
+  return st.cardScope.v;
+}
+
 export function describeCard(card, st, ctx) {
   return {
-    id: card.id, title: fill(card.title, st), text: fill(pickText(card, ctx, st), st),
+    id: card.id, title: fill(card.title, st), text: fill(pickText(card, ctx, st), st, ctx, cardScope(st, card.id)),
     choices: card.choices.map((ch, i) => {
       const { disabled, reason, owe } = choiceState(ch, st, ctx);
       const chips = Object.entries(ch.effects || {}).filter(([, v]) => v !== 0).map(([k, v]) => ({ k, dir: v > 0 ? 1 : -1 }));
@@ -322,12 +341,12 @@ export function applyChoice(st, data, card, idx, ctx, r, turnNo) {
   if (ch.declineGame && st.gameDecline % 3 === 0) extra = '公會的人問你是不是不玩了。';
   if (card.once) st.used[card.id] = true;
   if (card.cooldown) st.cooldowns[card.id] = turnNo + card.cooldown + 1;
-  st.choices.push({ turn: turnNo, id: card.id, title: fill(card.title, st), label: fill(ch.label, st), commute: ch.setCommute || null, spend: !!ch.spend });
+  st.choices.push({ turn: turnNo, id: card.id, title: fill(card.title, st), label: fill(ch.label, st), commute: ch.setCommute || null, spend: !!ch.spend, ...(ch.setFlags && { fl: ch.setFlags }) }); // fl：線上動態用
   if (card.payoffOf) { // 「早先的選擇」帶來的後果：記下來，結局報告會列出
     const e = ch.effects || {};
     const val = (e.心情 || 0) + (e.聯繫 || 0) + (e.分數 || 0) + (e.體力 || 0) * 0.5 + (e.錢包 || 0) / 100;
     const setup = card.payoffSetup ? [...st.choices].reverse().find((c) => c.id === card.payoffSetup && c.turn < turnNo) : null;
     (st.payoffs ||= []).push({ turn: turnNo, setup: fill(card.payoffOf, st), title: fill(card.title, st), label: fill(ch.label, st), tone: card.payoffTone || null, val, setupTurn: setup ? setup.turn : null, setupLabel: setup ? setup.label : null });
   }
-  return { line: [ch.result ? fill(ch.result, st) : '', extra].filter(Boolean).join(' ') };
+  return { line: [ch.result ? fill(ch.result, st, ctx, cardScope(st, card.id)) : '', extra].filter(Boolean).join(' ') };
 }

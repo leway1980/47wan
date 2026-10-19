@@ -5,6 +5,8 @@ import { openingText } from './engine/identity.js';
 import { buildEnding } from './engine/report.js';
 import { selfChoice, playRestAuto } from './engine/auto.js';
 import { avatarSpec, avatarOptsFromState } from './engine/avatar.js';
+import { sendEvent, getSnap, newGid } from './net.js';
+import { semesterCodes, maskSchool, feedLine } from './engine/feedcodes.js';
 import * as ui from './ui.js';
 
 const DAY = 86400000;
@@ -37,9 +39,9 @@ async function loadData() {
     if (!r.ok) throw new Error(`載入 ${f} 失敗 (${r.status})`);
     return r.json();
   };
-  const [identities, schools, events, calendar, life_events, campus, payoff, dating] = await Promise.all(['identities.json', 'schools.json', 'events.json', 'calendar.json', 'life_events.json', 'events_campus.json', 'events_payoff.json', 'events_dating.json'].map(get));
+  const [identities, schools, events, calendar, life_events, campus, payoff, dating, slots] = await Promise.all(['identities.json', 'schools.json', 'events.json', 'calendar.json', 'life_events.json', 'events_campus.json', 'events_payoff.json', 'events_dating.json', 'slots.json'].map(get));
   events.cards.push(...campus.cards, ...payoff.cards, ...dating.cards); // 校園事件、前因後果卡、交往事件放在獨立檔案
-  data = prepareData({ identities, schools, events, calendar, life_events });
+  data = prepareData({ identities, schools, events, calendar, life_events, slots });
 }
 
 /* ───── 遊戲狀態（控制器內） ───── */
@@ -64,6 +66,35 @@ function showTitle() {
     onNew: () => showIntro(params.get('seed') ? parseInt(params.get('seed'), 10) >>> 0 : newSeed()),
     onContinue: () => resume(),
   });
+  getSnap().then((snap) => { if (snap && phase === 'idle') ui.addTitleStats(root, snap); }); // 線上統計：沒部署或失敗就不顯示
+}
+
+/* ───── 匿名統計（只送進度與白名單欄位；失敗不影響遊戲） ───── */
+function ensureTrack() {
+  st.gid ||= newGid(); // 舊存檔沒有
+  st.sent ||= { start: false, sem: [], end: false, to: 0 };
+}
+function trackStart() {
+  ensureTrack();
+  if (st.sent.start) return;
+  st.sent.start = true;
+  sendEvent({ g: st.gid, k: 'start' });
+}
+function trackSem() {
+  ensureTrack();
+  const tl = data.timeline[st.turn - 1];
+  const sem = (tl.year - 1) * 2 + (tl.seg === '上學期' ? 1 : 2);
+  if (st.sent.sem.includes(sem)) return;
+  st.sent.sem.push(sem);
+  const ev = semesterCodes(st, st.sent.to, st.turn);
+  st.sent.to = st.turn;
+  sendEvent({ g: st.gid, k: 'sem', sem, c: st.identity.county, s: maskSchool(st.identity.school), nm: st.identity.name, ev });
+}
+function trackEnd(e) {
+  ensureTrack();
+  if (st.sent.end) return;
+  st.sent.end = true;
+  sendEvent({ g: st.gid, k: 'end', o: st.dead ? 'J' : e.outcome.type });
 }
 
 const isStale = (s) => !!s.lastSeen && Date.now() - s.lastSeen > OFFLINE_MS;
@@ -90,6 +121,8 @@ function showIntro(s) {
 function startGame(state) {
   st = state;
   seed = st.seed;
+  st.gid = newGid(); st.sent = { start: false, sem: [], end: false, to: 0 };
+  trackStart();
   buildGameScreen();
   ui.appendLog(refs, null, `${st.identity.name}，座號 ${st.identity.seat} 號。高中三年開始了。`, 'sys');
   writeSave(st);
@@ -100,6 +133,7 @@ function resume() {
   const s = readSave();
   if (!s) { showTitle(); return; }
   st = s; seed = st.seed;
+  trackStart();
   if (isStale(s)) { // 離開很久：高中自己過完了
     const days = Math.max(1, Math.round((Date.now() - s.lastSeen) / DAY));
     playRestAuto(st, data);
@@ -286,6 +320,7 @@ function showReportModal() {
   stopClock();
   const rp = st.reportPending;
   const q = st.quiz.find((x) => x.sem === rp.title);
+  trackSem(); // 線上動態：每學期只送一次
   let c;
   const view = ui.showReport(refs, rp, {
     guessed: q ? q.guess : null,
@@ -294,6 +329,11 @@ function showReportModal() {
     onNext: (blankAnswer) => c.settle(() => {
       if (blankAnswer != null) ui.appendLog(refs, null, `同屆在補習或打工的比例：${blankAnswer}%`, 'sys');
       clearReport(st); writeSave(st); ui.closeModal(refs); beginTurn(); }),
+  });
+  const me = st.identity;
+  getSnap().then((sn) => { // 線上同學：不顯示自己；沒有快照就維持原本的模擬動態
+    const lines = ((sn && sn.feed) || []).filter((f) => !(f.nm === me.name && f.s === maskSchool(me.school))).map(feedLine).filter(Boolean).slice(0, 2);
+    if (lines.length && phase === 'report') view.setOnline(lines);
   });
   c = arm((c) => c.timer(3000, () => view.skip())); // 自動：不回答猜題，直接看答案並繼續
 }
@@ -304,6 +344,7 @@ function showEnding(away) {
   stopClock();
   phase = 'ended';
   const e = buildEnding(st, data);
+  trackEnd(e);
   const av = avatarView();
   av.opts = { ...av.opts, outfit: 'uniform', dead: !!st.dead };
   store.del(); // 這一局結束了，不再顯示「繼續」

@@ -16,11 +16,13 @@ import { tutorCap, tutorMaxLevel, famStep, shockOf, effectiveEcon, BIZ, SALARY }
 import { avatarSVG, avatarSpec, avatarOptsFromState, isCompletePalette } from '../js/engine/avatar.js';
 import { generateIdentity } from '../js/engine/identity.js';
 import { selfChoice, playRestAuto } from '../js/engine/auto.js';
+import { fillSlots, slotRng } from '../js/engine/slots.js';
+import { FLAVOR_WIN } from '../js/engine/turn.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const rd = (f) => JSON.parse(readFileSync(join(root, 'data', f), 'utf8'));
 const withCampus = () => { const e = rd('events.json'); for (const f of readdirSync(join(root, 'data')).sort()) if (/^events_.+\.json$/.test(f)) e.cards.push(...rd(f).cards); return e; };
-const raw = () => ({ identities: rd('identities.json'), schools: rd('schools.json'), events: withCampus(), calendar: rd('calendar.json'), life_events: rd('life_events.json') });
+const raw = () => ({ identities: rd('identities.json'), schools: rd('schools.json'), events: withCampus(), calendar: rd('calendar.json'), life_events: rd('life_events.json'), slots: rd('slots.json') });
 const data = prepareData(raw());
 
 // 固定的「玩家」：習慣與選擇都由自己的亂數決定
@@ -795,7 +797,8 @@ test('交往中：每回合都有相處的小事 log，感情卡很常出現（�
       if (st.reportPending) st.reportPending = null;
       if (was) {
         const texts = fin.lines.map((l) => l.text);
-        const lineOk = COUPLE_LINES.some((L) => texts.includes(L.t.replace(/\{對象\}/g, name)));
+        // 句子可含變數槽：把 {槽} 當成萬用字元比對
+        const lineOk = COUPLE_LINES.some((L) => { const re = new RegExp('^' + L.t.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{對象\}/g, name).replace(/\{[^{}]+\}/g, '.+?') + '$'); return texts.some((x) => re.test(x)); });
         assert.ok(lineOk, `seed ${seed} 回合 ${t} 沒有相處的 log：${texts}`);
       }
     }
@@ -944,4 +947,136 @@ test('技高不選學群；家庭型態卡與技高卡都有符合的人才會�
   const vc = data.events.cards.filter((c) => c.id.startsWith('voc_') && c.requires?.expr?.startsWith('技高'));
   assert.ok(vc.length >= 6);
   for (const c of vc) assert.equal(passes(c, gen, buildCtx(gen, data.timeline[10])), false, c.id);
+});
+
+/* ───────────── 變數槽 ───────────── */
+const slotCtx = (st, turn = 30) => buildCtx(st, data.timeline[turn]); // 回合 30 = 高二上
+
+test('fillSlots：同一狀態結果相同；同一段文字同一個槽只抽一次', () => {
+  const mk = () => { const st = newState(5, data); return { st, ctx: slotCtx(st) }; };
+  const a = mk(), b = mk();
+  const ta = fillSlots('{科目}、{科目}、{群組}、{未讀}', a.st, a.ctx, slotRng(a.st));
+  const tb = fillSlots('{科目}、{科目}、{群組}、{未讀}', b.st, b.ctx, slotRng(b.st));
+  assert.equal(ta, tb);
+  const [x, y] = ta.split('、');
+  assert.equal(x, y);
+  assert.ok(!/[{}]/.test(ta));
+});
+
+test('fillSlots：舊存檔沒有 slotS／slotLast 也能用；固定代稱原樣保留；未知的槽被去掉', () => {
+  const st = newState(5, data);
+  delete st.slotS; delete st.slotLast; delete st.flavorSeen;
+  const t = fillSlots('{同學}說{科目}和{不存在的槽}', st, slotCtx(st));
+  assert.ok(t.startsWith('{同學}說') && !t.includes('不存在'), t);
+  assert.ok(typeof st.slotS === 'number');
+});
+
+test('fillSlots：巢狀（老師 → {科目}老師）與連動（補習班群 → 時段＝晚上）', () => {
+  const st = newState(9, data);
+  st.habits.補習 = 2; st.habits.遊戲 = 0;
+  let sawNest = false, sawChain = false;
+  for (let i = 0; i < 300; i++) {
+    const pinned = {};
+    const t = fillSlots('{老師}｜{群組}｜{時段}', st, slotCtx(st), slotRng(st), pinned);
+    assert.ok(!/[{}]/.test(t));
+    if (pinned.老師 === '{科目}老師') { sawNest = true; assert.ok(t.startsWith(pinned.科目 + '老師')); }
+    if (pinned.群組 === '補習班群') { sawChain = true; assert.equal(pinned.時段, '晚上'); }
+  }
+  assert.ok(sawNest && sawChain);
+});
+
+test('fillSlots：避開上一次用過的值', () => {
+  const st = newState(11, data);
+  const ctx = slotCtx(st);
+  let prev = null;
+  for (let i = 0; i < 80; i++) {
+    const v = fillSlots('{手搖飲}', st, ctx, slotRng(st));
+    assert.notEqual(v, prev);
+    prev = v;
+  }
+});
+
+test('科目：社會組高二不會是物理；技高餐旅不會是普高科目', () => {
+  const NAT = ['物理', '化學', '生物', '地科'], SOC = ['歷史', '地理', '公民'];
+  const soc = newState(3, data); soc.identity.vocGroup = null; soc.flags.文法商學群 = true;
+  const nat = newState(4, data); nat.identity.vocGroup = null; nat.flags.自然學群 = true;
+  const voc = newState(6, data); voc.identity.vocGroup = '餐旅';
+  const seen = { soc: new Set(), nat: new Set(), voc: new Set() };
+  for (let i = 0; i < 400; i++) {
+    for (const [k, st] of [['soc', soc], ['nat', nat], ['voc', voc]]) {
+      const ctx = slotCtx(st);
+      for (const slot of ['科目', '科目弱', '科目強']) seen[k].add(fillSlots(`{${slot}}`, st, ctx, slotRng(st)));
+    }
+  }
+  for (const v of seen.soc) assert.ok(!NAT.includes(v), '社會組出現 ' + v);
+  for (const v of seen.nat) assert.ok(!SOC.includes(v), '自然組出現 ' + v);
+  for (const v of seen.voc) assert.ok(!NAT.includes(v) && !SOC.includes(v), '技高出現 ' + v);
+  assert.ok(seen.soc.has('歷史') && seen.nat.has('物理') && seen.voc.has('餐飲實務'));
+});
+
+test('科目弱／強：依這個人的各科天分', () => {
+  const st = newState(8, data);
+  st.identity.aptitude = { 國文: 5, 英文: 9, 數學: -12, 自然: 0, 社會: 2 };
+  const ctx = slotCtx(st);
+  assert.equal(ctx.弱科, '數學'); assert.equal(ctx.強科, '英文');
+  assert.equal(fillSlots('{科目弱}', st, ctx, slotRng(st)), '數學');
+  assert.equal(fillSlots('{科目強}', st, ctx, slotRng(st)), '英文');
+});
+
+test('模擬考只出現在高三', () => {
+  const st = newState(2, data);
+  const ctx1 = slotCtx(st, 5);
+  for (let i = 0; i < 200; i++) assert.notEqual(fillSlots('{小考種類}', st, ctx1, slotRng(st)), '模擬考');
+  const ctx3 = slotCtx(st, 50);
+  let any = false;
+  for (let i = 0; i < 200; i++) if (fillSlots('{小考種類}', st, ctx3, slotRng(st)) === '模擬考') any = true;
+  assert.ok(any);
+});
+
+test('50 局完整遊戲：紀錄與事件文字都沒有殘留的 { }', () => {
+  for (let seed = 1; seed <= 50; seed++) {
+    const st = newState(seed, data);
+    const pol = scripted(seed);
+    while (!st.ended) {
+      const res = (pol.habits(st), startTurn(st, data));
+      if (!res.dead && res.card) {
+        assert.ok(!/\{(?!同學|家長|對象|網友|姓名)/.test(res.card.text), `${res.card.id}: ${res.card.text}`);
+        chooseCard(st, data, pol.choose(st, res.card));
+      }
+      finishTurn(st, data); st.reportPending = null;
+    }
+    for (const lg of st.logs) for (const l of lg.lines) assert.ok(!/[{}]/.test(l.text), `seed ${seed}: ${l.text}`);
+  }
+});
+
+test('風味句：同一句 6 回合內不重複', () => {
+  let checked = 0;
+  for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    const st = newState(seed, data);
+    const pol = scripted(seed);
+    while (!st.ended) {
+      const before = { ...st.flavorSeen };
+      const res = (pol.habits(st), startTurn(st, data));
+      if (!res.dead && res.card) chooseCard(st, data, pol.choose(st, res.card));
+      const t = st.turn;
+      finishTurn(st, data); st.reportPending = null;
+      for (const [id, at] of Object.entries(st.flavorSeen)) {
+        if (!/^fl\d+$/.test(id) || at !== t) continue;
+        if (before[id] !== undefined) assert.ok(t - before[id] > FLAVOR_WIN, `seed ${seed} ${id} 隔 ${t - before[id]} 回合又出現`);
+        checked++;
+      }
+    }
+  }
+  assert.ok(checked > 200);
+});
+
+test('lint：未知的槽、沒有後備值的槽、指到不存在值的 set 都會被抓到', async () => {
+  const { lintData, loadRaw } = await import('../tools/lint-data.mjs');
+  assert.equal(lintData().errors.length, 0);
+  const bad = loadRaw();
+  bad.calendar.flavor.push({ if: 'true', text: '今天的{沒有這個槽}課。' });
+  bad.slots.slots.壞槽 = [{ t: 'a', if: '手機 > 1', set: { 時段: '不存在' } }];
+  bad.slots.slots.壞條件 = [{ t: 'b' }, { t: 'c', if: '不存在的變數 > 1' }];
+  const e = lintData(bad).errors.join('\n');
+  assert.match(e, /沒有這個槽/); assert.match(e, /壞槽：沒有無條件的後備值/); assert.match(e, /不在槽「時段」/); assert.match(e, /不存在的變數/);
 });

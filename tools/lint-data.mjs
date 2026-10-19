@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { tokenize, buildCtx, compile } from '../js/engine/events.js';
 import { prepareData } from '../js/engine/turn.js';
 import { newState, HABIT_DEFAULTS } from '../js/engine/state.js';
+import { FIXED_TOKENS } from '../js/engine/slots.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const rd = (f) => JSON.parse(readFileSync(join(ROOT, 'data', f), 'utf8'));
@@ -15,7 +16,7 @@ export function loadRaw() {
   for (const f of readdirSync(join(ROOT, 'data'))) {
     if (/^events_.+\.json$/.test(f)) events.cards.push(...rd(f).cards);
   }
-  return { identities: rd('identities.json'), schools: rd('schools.json'), events, calendar: rd('calendar.json'), life_events: rd('life_events.json') };
+  return { identities: rd('identities.json'), schools: rd('schools.json'), events, calendar: rd('calendar.json'), life_events: rd('life_events.json'), slots: rd('slots.json') };
 }
 
 const engineSrc = () => readdirSync(join(ROOT, 'js', 'engine')).map((f) => readFileSync(join(ROOT, 'js', 'engine', f), 'utf8')).join('\n');
@@ -48,6 +49,35 @@ export function lintData(raw = loadRaw()) {
       if (t.t === 'flag') note(flagRead, t.v, where);
     }
   };
+  // 變數槽：每個 {槽} 都要有池；池的條件變數要存在；每個槽要有無條件的後備值；set 要指到真的有的槽與值；不能互相巢狀成圈
+  const slots = (raw.slots && raw.slots.slots) || {};
+  const slotTokens = (t) => [...String(t || '').matchAll(/\{([^{}]+)\}/g)].map((m) => m[1]);
+  const checkTokens = (text, where, allowSlots = true) => {
+    for (const n of slotTokens(text)) {
+      if (FIXED_TOKENS.includes(n)) continue;
+      if (!slots[n]) errors.push(`${where}：用到不存在的槽 {${n}}`);
+      else if (!allowSlots) errors.push(`${where}：{${n}} 不能用在標題、選項或備註（只有內文、結果與風味句會換槽）`);
+    }
+  };
+  for (const [name, vals] of Object.entries(slots)) {
+    const W = `槽 ${name}`;
+    if (!vals.some((v) => !v.if)) errors.push(`${W}：沒有無條件的後備值`);
+    for (const v of vals) {
+      if (v.if) checkExpr(v.if, `${W}／${v.t}`);
+      checkTokens(v.t, `${W}／${v.t}`);
+      for (const [k, x] of Object.entries(v.set || {})) {
+        if (!slots[k]) errors.push(`${W}／${v.t}：set 指到不存在的槽「${k}」`);
+        else if (!slots[k].some((y) => y.t === x)) errors.push(`${W}／${v.t}：set 的值「${x}」不在槽「${k}」裡`);
+      }
+    }
+  }
+  const visit = (n, path) => {
+    if (path.includes(n)) { errors.push(`槽 ${[...path, n].join(' → ')}：巢狀成圈`); return; }
+    for (const v of slots[n] || []) for (const m of slotTokens(v.t)) if (slots[m]) visit(m, [...path, n]);
+  };
+  for (const n of Object.keys(slots)) visit(n, []);
+  (raw.calendar.flavor || []).forEach((f, i) => { checkExpr(f.if, `風味句 #${i}`); checkTokens(f.text, `風味句 #${i}`); });
+  for (const m of src.matchAll(/'([^'\n]*\{[㐀-鿿]+\}[^'\n]*)'/g)) checkTokens(m[1], '引擎句子庫'); // turn.js 的句子庫
   const statUse = new Map(); // 事件寫入的數值
   for (const c of cards) {
     const W = `卡片 ${c.id}`;
@@ -60,11 +90,14 @@ export function lintData(raw = loadRaw()) {
     for (const f of c.excludes?.flags || []) note(flagRead, f, W);
     if (c.excludes?.expr) checkExpr(c.excludes.expr, W);
     for (const m of c.modifiers || []) checkExpr(m.if, W);
-    for (const t of c.textIf || []) checkExpr(t.if, W);
+    for (const t of c.textIf || []) { checkExpr(t.if, W); checkTokens(t.text, W); }
+    checkTokens(c.text, W); for (const t of c.texts || []) checkTokens(t, W);
+    checkTokens(c.title, W + '標題', false); checkTokens(c.payoffOf, W + 'payoffOf', false);
     const isFree = (ch) => !(ch.cost || ((ch.effects || {}).錢包 || 0) < 0) || ch.canOwe;
     if ((c.choices || []).length && !(c.choices || []).some((ch) => isFree(ch) && !ch.grayIf && !ch.repayDebt)) errors.push(`${W}：沒有任何「不用花錢、不會變灰」的選項，錢包見底時可能沒得選`);
     for (const ch of c.choices || []) {
       const WC = `${W}／${ch.label}`;
+      checkTokens(ch.result, WC); checkTokens(ch.label, WC + '標籤', false); checkTokens(ch.note, WC + '備註', false);
       for (const part of ['effects', 'hidden']) {
         for (const k of Object.keys(ch[part] || {})) {
           if (!statKeys.has(k)) errors.push(`${WC}：數值「${k}」不存在（state.js 沒有這個欄位）`);

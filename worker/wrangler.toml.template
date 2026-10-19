@@ -1,0 +1,16 @@
+# 由 .github/workflows/deploy-stats.yml 填入 id 後產生 wrangler.toml（id 不進版控）
+name = "wan47-stats"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "wan47"
+database_id = "__D1_ID__"
+
+[[kv_namespaces]]
+binding = "SNAP"
+id = "__KV_ID__"

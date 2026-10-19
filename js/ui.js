@@ -86,6 +86,15 @@ export function renderTitle(root, { hasSave, continueLabel = '繼續', onNew, on
   );
 }
 
+/** 標題下方的線上人數（快照取得後才加；沒有就不顯示） */
+export function addTitleStats(root, snap) {
+  const sub = [...root.querySelectorAll('.hero .sub')].pop();
+  if (!sub || root.querySelector('[data-snap]')) return;
+  const n = (v) => Math.max(0, Math.round(v)).toLocaleString('en-US');
+  sub.after(h('p', { class: 'snap', 'data-snap': '1' }, `🎓 已經有 ${n(snap.graduated)} 人從這裡畢業｜📚 ${n(snap.studying)} 人正在就讀`),
+    h('p', { class: 'small muted', style: 'margin-top:-6px' }, '只會匿名送出遊戲進度，不含任何個人資料。'));
+}
+
 /* ───────────── 開場 ───────────── */
 export function renderIntro(root, { paras, tags, schoolLine, supportLine, seed, onStart, onReroll, avatar, uniformCaption }) {
   root.replaceChildren(
@@ -408,6 +417,9 @@ export function showReport(refs, rp, { onGuess, onNext, guessed, st, avatar }) {
     phoneHeavy && `📱 ${rough(phoneHeavy)}手機「一有空就滑」`,
     days && pct && ['腳踏車', '微電車', '無照騎機車'].includes(st.identity.commute) && `${st.identity.commute === '腳踏車' ? '🚲' : '🛵'} 你騎車上學 ${days} 天，一年發生事故的機率約 ${pct}`,
   ].filter(Boolean);
+  const peersBox = h('div', { class: 'feed-box' },
+    rp.feed && rp.feed.length > 0 && h('h3', { class: 'feed-peers-h' }, '同屆的其他人'),
+    rp.feed && rp.feed.length > 0 && h('ul', { class: 'feed-peers' }, rp.feed.map((t) => h('li', null, t))));
   const out = h('p', { class: 'rq-out', 'data-out': '1', 'aria-live': 'polite' });
   const input = h('input', { class: 'rq-in', type: 'text', inputmode: 'numeric', pattern: '[0-9]*', maxlength: 3, placeholder: '猜幾 %？（可不填）', 'aria-label': rp.quiz.question });
   const reveal = (g) => { out.textContent = `你猜 ${g}%，實際 ${rp.quiz.answer}%`; };
@@ -425,13 +437,21 @@ export function showReport(refs, rp, { onGuess, onNext, guessed, st, avatar }) {
       h('div', null, h('div', { class: 'eyebrow' }, '學期報告'), h('h2', null, `${rp.title}結束了`))),
     h('div', { class: 'tiles' }, tiles.map(([ic, k, v]) => h('div', { class: 'tile' }, h('span', { class: 'ic', 'aria-hidden': 'true' }, ic), h('span', { class: 'tk' }, k), h('span', { class: 'tv' }, v)))),
     h('ul', { class: 'facts' }, facts.map((t) => h('li', null, t))),
-    rp.feed && rp.feed.length > 0 && h('h3', { class: 'feed-peers-h' }, '同屆的其他人'),
-    rp.feed && rp.feed.length > 0 && h('ul', { class: 'feed-peers' }, rp.feed.map((t) => h('li', null, t))),
+    peersBox,
     h('div', { class: 'rq' }, h('p', { class: 'small muted' }, rp.quiz.question), input, out),
     btn,
   );
   btn.focus({ preventScroll: true });
-  return { skip: () => onNext(shown ? null : rp.quiz.answer) }; // 自動模式：不回答猜題，直接看答案並繼續
+  // 線上真人動態（已由 feedLine 轉成固定片語）：放在前面，模擬動態只留 1 則
+  const setOnline = (lines) => {
+    const sim = (rp.feed || []).slice(0, 1);
+    peersBox.replaceChildren(
+      h('h3', { class: 'feed-peers-h' }, '線上的同學'),
+      h('ul', { class: 'feed-peers' }, lines.map((t) => h('li', null, t))),
+      sim.length > 0 && h('h3', { class: 'feed-peers-h' }, '同屆的其他人'),
+      sim.length > 0 && h('ul', { class: 'feed-peers' }, sim.map((t) => h('li', null, t))));
+  };
+  return { setOnline, skip: () => onNext(shown ? null : rp.quiz.answer) }; // 自動模式：不回答猜題，直接看答案並繼續
 }
 
 /* ───────────── 終局 ───────────── */

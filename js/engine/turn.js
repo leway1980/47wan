@@ -144,7 +144,10 @@ function applyHabitsInner(st, data, tl, r) {
   const atmos = 0.85 + 0.3 * S.班級氣氛;
   const classPart = vac ? 0 : 40 * focus * 0.35 * CLASS_F[H.課堂] * atmos * interest;
   const own = H.課堂 === '做自己的事' && !vac ? 3 : 0;
-  const selfPart = (selfHours + own) * focus * HW_F[H.作業] * interest;
+  // 在家讀書、手機或電腦就在房間：有玩手遊的人，自己讀書的時間大多被吃掉（除非手機被保管）
+  const phoneAway = !!(st.rule && st.turn < st.rule.until && st.rule.cap <= 2);
+  const homeLeak = H.遊戲 >= 1 && !phoneAway ? Math.max(0.25, 1 - 0.25 * H.遊戲 - (H.手機 >= 3 ? 0.15 : 0)) : 1;
+  const selfPart = (selfHours + own) * focus * HW_F[H.作業] * interest * homeLeak;
   const cramPart = cram * (tutorIsFree(st) ? 0.6 : 1) * 3.5 * focus * 0.4 * interest;
   const learn = (classPart + cramPart + selfPart) * ((S.AI依賴 ?? 0) >= 1.5 ? 0.85 : 1); // 太依賴 AI，自己想的功夫變少
   const recov = st.recover > 0 ? 0.35 : 1;

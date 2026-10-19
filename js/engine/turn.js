@@ -2,7 +2,7 @@
 import { SUBJECTS } from './identity.js';
 import { mulberry32, stateRng, rngAt, gauss, pickWeighted, clamp } from './rng.js';
 import { tutorMaxLevel, tutorIsFree, famStep } from './family.js';
-import { buildCtx, drawCard, describeCard, applyChoice, applyEffects, cardById, evalCond, compile, passes } from './events.js';
+import { buildCtx, drawCard, describeCard, applyChoice, applyEffects, cardById, evalCond, compile, passes, fill } from './events.js';
 import { checkLife, DEATH_LINE } from './life.js';
 import { stepPeers } from './peers.js';
 import { computeOutcome, semesterReport, formatDate, formatDateLong } from './report.js';
@@ -66,8 +66,13 @@ const PHONE_HAPPY = [-0.5, 0.3, 0.3, -0.2, -0.6];
 const COVER = { 自己就是資源: 0.4, 花錢買資源: 0.7, 自己找資源: 0 };
 
 const IG_LOOK_LINES = ['你的自拍被很多人按愛心。', '有人在你的貼文留言「今天好好看」，你笑了一下。', '隔壁班有人私訊說想認識你。'];
+const NET_LINES = [
+  ['{網友}傳來一句「早安，今天也要加油喔」。', '{網友}問你今天考試考得怎麼樣，還記得你昨天說的事。', '你和{網友}在遊戲裡組隊打了兩場，他一直幫你補血。', '{網友}說他也是高中生，也很討厭數學。'],
+  ['{網友}每天晚上都會傳「晚安」，你開始會等他的訊息。', '你跟家人吵架，第一個想到的是傳訊息給{網友}。', '{網友}說：「你是我在這裡最好的朋友。」', '{網友}記得你的生日，傳了一張自己畫的卡片。'],
+  ['{網友}說最近家裡有點狀況，心情很差。', '{網友}傳來一段很長的訊息，說只有你懂他。', '{網友}說想跟你一起做一件「很酷的事」，之後再告訴你。', '{網友}說他找到一個賺點數的好方法，下次教你。'],
+];
 const IG_LINES = ['你的限動被 23 個人看過，有 2 個人回覆。', '有人在限動 tag 你，你想了一下要怎麼回。', '同學私訊你：「在嗎？」你回完已經過了半小時。', '你滑了別人的出遊限動十分鐘。', '群組裡有人問你怎麼都沒回限動。', '有人按了你半年前的貼文愛心，你有點在意。', '你看到同學一起去吃飯的限動，你不在裡面。', '新追蹤你的人說是隔壁班的，你回追了。'];
-const GAME_LINES = ['每日任務還沒解完，你先上線點一下。', '限時活動只剩三天，你又打開了遊戲。', '公會戰今晚八點，你一直看時間。', '登入送十抽，你捨不得不領。', '體力條滿了，你找理由再上去一下。', '朋友說副本差一個人，你的手已經在滑。'];
+const GAME_LINES = ['每日任務還沒解完，你先上線點一下。', '限時活動只剩三天，你又打開了遊戲。', '公會群組在討論週末的團戰時間，你被 tag 了。', '登入送十抽，你捨不得不領。', '體力條滿了，你找理由再上去一下。', '朋友說副本差一個人，你的手已經在滑。', '公會長在群組發了新的打寶表，問大家誰有空。', '同學在玩新出的音樂節奏手遊，你也下載來試了一下。', '午休時大家在玩同一款手遊的對戰，你被拉進來湊人數。', '遊戲更新要下載 3GB，你在學校用熱點偷偷載。', '你在遊戲裡抽到一隻稀有角色，截圖傳到班群。', '寒流來的晚上，你窩在被子裡打了三場排位。', '有人在公會群組賣帳號，大家吵了一晚。', '你把遊戲裡的寵物取了跟家裡的貓一樣的名字。']
 export const PHONE_CREEP = 0.03; // 每回合手機用量慢慢變多的機率；自然爬升最多到 3 級，4 級只會因為事件
 const CREEP_LINE = '不知不覺，你滑手機的時間又變長了。';
 export function applyHabits(st, data, tl, r) {
@@ -204,6 +209,16 @@ function applyHabitsInner(st, data, tl, r) {
       S.心情 = clamp(S.心情 + 1, 0, 100);
     }
   }
+  /* 網友：詐騙不會一開始就要錢，先噓寒問暖、一起打遊戲、送小東西，慢慢變成「最懂你的人」 */
+  if (st.flags.網友) {
+    if (st.netStart == null) st.netStart = st.turn;
+    const k = st.turn - st.netStart;
+    const pool = k < 4 ? NET_LINES[0] : k < 8 ? NET_LINES[1] : NET_LINES[2];
+    lines.push(fill(pool[Math.floor(rngAt(st.seed, st.turn, 'net') * pool.length)], st));
+    S.心情 = clamp(S.心情 + 1, 0, 100);
+    S.專注 = clamp(S.專注 - 0.5, 15, 100);
+    S.牽掛 = clamp(S.牽掛 + 0.1, 0, 10);
+  } else st.netStart = null;
   /* IG：加了之後，每週都有訊息、限動和回覆的人情要應付 */
   if (st.flags.IG) {
     const igLv = st.flags.IG常用 ? 2 : 1;

@@ -1,5 +1,5 @@
 // 事件卡：條件求值器（不用 eval）、抽卡、套用選擇。純函式，無 DOM。
-import { pickWeighted, clamp } from './rng.js';
+import { pickWeighted, clamp, rngAt } from './rng.js';
 
 /* ───────────── 小型條件求值器 ─────────────
    語法：數字、'字串'、變數名(中文可)、#旗標、== != < <= > >=、and or not（也可用 && || !）、括號、true/false */
@@ -123,6 +123,7 @@ export function buildCtx(st, tl) {
     年級: tl ? tl.year : 1, 學期: tl ? (tl.seg === '上學期' ? 1 : tl.seg === '下學期' ? 2 : 0) : 1,
     回合: st.turn, 假期: tl ? !!tl.vacation : false, 寒假: tl ? tl.seg === '寒假' : false, 考試週: examNow,
     家裡狀況: (st.fam && st.fam.shock && st.fam.shock.id) || '',
+    網友回合: st.netStart == null ? -1 : st.turn - st.netStart,
   };
 }
 
@@ -188,8 +189,12 @@ export function drawCard(st, data, ctx, r) {
 }
 
 /* ───────────── 把卡片轉成顯示用資料 ───────────── */
+// IG 上認識的人用帳號名稱稱呼，不直接叫「網友」（玩家才不會一開始就起戒心）
+const NET_HANDLES = ['@mia.0927', '@yu_ting.lin', '@kai__chen', '@sunny_hsu', '@leo.wu_17', '@chloe.tw', '@a_ming.zz', '@rainy.day04', '@jason_lee.08', '@pinpin.0612'];
 export function fill(text, st) {
   const friend = st.peers.known[0]?.name || '同學';
+  if (!st.netName) st.netName = NET_HANDLES[Math.floor(rngAt(st.seed, 7, 'nethandle') * NET_HANDLES.length)];
+  text = text.replace(/\{網友\}/g, st.netName);
   return text.replace(/\{家長\}/g, st.identity.family.parent || '家長').replace(/\{同學\}/g, friend).replace(/\{姓名\}/g, st.identity.name);
 }
 
@@ -213,14 +218,16 @@ export function choiceState(ch, st, ctx) {
 }
 
 // 卡片文字可依狀況換版本：textIf 由上往下找第一個符合的條件
-export function pickText(card, ctx) {
+// 同一張卡可以有好幾種寫法（texts），每次依回合隨機挑一種，避免三年都看到同一段話
+export function pickText(card, ctx, st) {
   for (const t of card.textIf || []) if (ctx && evalCond(t.if, ctx)) return t.text;
+  if (card.texts && card.texts.length && st) return card.texts[Math.floor(rngAt(st.seed, st.turn, 'tx_' + card.id) * card.texts.length)];
   return card.text;
 }
 
 export function describeCard(card, st, ctx) {
   return {
-    id: card.id, title: card.title, text: fill(pickText(card, ctx), st),
+    id: card.id, title: fill(card.title, st), text: fill(pickText(card, ctx, st), st),
     choices: card.choices.map((ch, i) => {
       const { disabled, reason, owe } = choiceState(ch, st, ctx);
       const chips = Object.entries(ch.effects || {}).filter(([, v]) => v !== 0).map(([k, v]) => ({ k, dir: v > 0 ? 1 : -1 }));

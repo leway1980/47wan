@@ -2,6 +2,7 @@
 import { gauss, mulberry32 } from './rng.js';
 import { generateIdentity } from './identity.js';
 import { genPeers, newPeerCounts } from './peers.js';
+import { ensureConduct } from './conduct.js';
 
 export const SAVE_VERSION = 1;
 export const SAVE_KEY = 'wan47.save.v1';
@@ -29,7 +30,7 @@ export function newState(seed, data) {
   const r = mulberry32((seed ^ 0x2545f491) >>> 0);
   const stats = {
     專注: 72, 理解: 42 + gauss(r) * 3, 體力: 80, 聯繫: 30, 知心: 1, 心情: 55, 幸福: 55,
-    錢包: start.錢包, AI依賴: 0, 親子: { 放任: 50, 支持: 65, 高期待: 45, 自顧不暇: 40 }[identity.family.style] ?? 50, 投資: 0, 投資本金: 0, 睡眠債: 1, 牽掛: 0, 假熟悉: 0, 班級氣氛: 0.5, 興趣: 1.0, 資訊: identity.info, 露餡: 0,
+    錢包: start.錢包, AI依賴: 0, 親子: { 放任: 50, 支持: 65, 高期待: 45, 自顧不暇: 40 }[identity.family.style] ?? 50, 投資: 0, 投資本金: 0, 睡眠債: 1, 牽掛: 0, 假熟悉: 0, 班級氣氛: 0.5, 興趣: 1.0, 資訊: identity.info, 露餡: 0, 師長印象: 50, 同儕信任: 50, // 師長印象、同儕信任：隱藏數值（見 conduct.js）
   };
   stats.親子 += (idn.familyStructures.find((x) => x.id === identity.family.structure) || {}).親子 || 0; // 離異、重組：關係起點較低
   for (const [k, v] of Object.entries(school.mod)) {
@@ -37,7 +38,7 @@ export function newState(seed, data) {
     else stats[k] += v;
   }
   const peers = genPeers(seed, data, identity.name);
-  return {
+  return ensureConduct({
     v: SAVE_VERSION, seed, turn: 0, rngS: (seed ^ 0xa5a5a5a5) >>> 0, peerS: (seed ^ 0x3c6ef372) >>> 0, autoS: (seed ^ 0x51ed270b) >>> 0, slotS: (seed ^ 0x7f4a7c15) >>> 0,
     identity, stats, habits: startHabits(seed, identity), flags: {}, cooldowns: {}, used: {},
     slotLast: {}, flavorSeen: {},
@@ -45,7 +46,7 @@ export function newState(seed, data) {
     peers, peerCounts: newPeerCounts(), peerSnap: newPeerCounts(), peerFeed: [],
     recover: 0, dead: false, deathTurn: null, ended: false,
     gsat: null, final: null, outcome: null, examScores: [], quiz: [], reportPending: null, cur: null,
-  };
+  });
 }
 
 export const serialize = (st) => JSON.stringify(st);
@@ -54,7 +55,7 @@ export const deserialize = (s) => {
   if (!st || st.v !== SAVE_VERSION) throw new Error('存檔版本不符');
   st.peerFeed ??= []; // 舊存檔沒有
   st.slotS ??= ((st.seed ^ 0x7f4a7c15) >>> 0); st.slotLast ??= {}; st.flavorSeen ??= {};
-  return st;
+  return ensureConduct(st); // 舊存檔沒有態度紀錄
 };
 
 export function visibleScore(st, rngAtFn) {

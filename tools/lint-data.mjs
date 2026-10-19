@@ -7,6 +7,7 @@ import { tokenize, buildCtx, compile } from '../js/engine/events.js';
 import { prepareData } from '../js/engine/turn.js';
 import { newState, HABIT_DEFAULTS } from '../js/engine/state.js';
 import { FIXED_TOKENS } from '../js/engine/slots.js';
+import { ATT_KEYS, GATES } from '../js/engine/conduct.js';
 import { endingCtx, TURN_TAGS, FACETS, ENDING_PLACEHOLDERS } from '../js/engine/ending.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -87,6 +88,8 @@ export function lintData(raw = loadRaw()) {
     if (c.payoffSetup && !ids.has(c.payoffSetup)) errors.push(`${W}：payoffSetup「${c.payoffSetup}」不存在`);
     if (c.payoffOf && c.payoffTone && !['good', 'bad'].includes(c.payoffTone)) errors.push(`${W}：payoffTone 只能是 good 或 bad`);
     if (c.requires?.expr) checkExpr(c.requires.expr, W);
+    for (const k of Object.keys(c.gateMin || {})) if (!['師長印象', '同儕信任'].includes(k) || typeof c.gateMin[k] !== 'number') errors.push(`${W}：gateMin 只能是師長印象或同儕信任的數字門檻`);
+    if (c.missed && !GATES[c.missed]) errors.push(`${W}：missed「${c.missed}」只能是 ${Object.keys(GATES).join('、')}`);
     for (const f of c.requires?.flags || []) note(flagRead, f, W);
     for (const f of c.excludes?.flags || []) note(flagRead, f, W);
     if (c.excludes?.expr) checkExpr(c.excludes.expr, W);
@@ -110,11 +113,14 @@ export function lintData(raw = loadRaw()) {
       }
       for (const k of Object.keys({ ...(ch.setHabits || {}), ...(ch.addHabits || {}) })) if (!habitKeys.has(k)) errors.push(`${WC}：習慣「${k}」不存在`);
       for (const g of [].concat(ch.grayIf || [])) checkExpr(g.if, WC);
+      for (const [k, v] of Object.entries(ch.att || {})) if (!ATT_KEYS.includes(k) || typeof v !== 'number') errors.push(`${WC}：att「${k}」不是出缺勤計數（可用 ${ATT_KEYS.join('、')}）`);
+      if (ch.act != null && (typeof ch.act !== 'string' || !ch.act)) errors.push(`${WC}：act 要是非空字串`);
       for (const d of ch.delayed || []) {
         if (!ids.has(d.event)) errors.push(`${WC}：延遲事件「${d.event}」不存在`);
         if (d.else && !ids.has(d.else)) errors.push(`${WC}：延遲事件 else「${d.else}」不存在`);
         if (d.if) checkExpr(d.if, WC);
         if (d.need) checkExpr(d.need, WC);
+        if (d.gate && !GATES[d.gate]) errors.push(`${WC}：延遲事件 gate「${d.gate}」只能是 ${Object.keys(GATES).join('、')}`);
         if (!d.after && !d.atTurn) errors.push(`${WC}：延遲事件「${d.event}」要有 after 或 atTurn`);
       }
       for (const f of ch.ladder || []) note(flagSet, f, WC);

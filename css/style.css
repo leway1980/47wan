@@ -147,6 +147,22 @@ details.habits { background: var(--card); border: 1px solid var(--line); border-
 .legend i { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin: 0 4px 0 8px; }
 .two { display: grid; gap: 12px; }
 @media (min-width: 640px) { .two { grid-template-columns: 1fr 1fr; } }
+/* 高中三年紀錄：手機一學期一張卡，≥900px 改成六欄表格 */
+.semwrap { overflow-wrap: anywhere; }
+.semtab { display: none; width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 14px; }
+.semtab th, .semtab td { border-top: 1px solid var(--line); padding: 8px 8px; text-align: left; vertical-align: top; }
+.semtab thead th { color: var(--accent); border-top: 0; }
+.semtab tbody th { color: var(--muted); font-weight: 600; width: 96px; }
+.semcards { display: grid; gap: 10px; }
+.semcard { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.semcard h4 { margin: 0 0 4px; color: var(--accent); }
+.semcard dl { margin: 0; }
+.semrow { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 8px; padding: 4px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.semrow:first-child { border-top: 0; }
+.semrow dt { color: var(--muted); } .semrow dd { margin: 0; }
+.conduct { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.conduct p { margin-top: 4px; }
+@media (min-width: 900px) { .semtab { display: table; } .semcards { display: none; } }
 .end ul { margin: 6px 0 0; padding-left: 20px; }
 .end .btns { display: grid; gap: 10px; margin-top: 18px; max-width: 420px; margin-inline: auto; }
 .dead-end { text-align: center; padding-top: 80px; }

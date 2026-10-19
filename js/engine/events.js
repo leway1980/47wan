@@ -1,6 +1,7 @@
 // 事件卡：條件求值器（不用 eval）、抽卡、套用選擇。純函式，無 DOM。
 import { pickWeighted, clamp, rngAt } from './rng.js';
 import { fillSlots } from './slots.js';
+import { STAT_MOD, modKind, gateFactor, actOf } from './conduct.js';
 
 /* ───────────── 小型條件求值器 ─────────────
    語法：數字、'字串'、變數名(中文可)、#旗標、== != < <= > >=、and or not（也可用 && || !）、括號、true/false */
@@ -124,6 +125,9 @@ export function buildCtx(st, tl) {
     年級: tl ? tl.year : 1, 學期: tl ? (tl.seg === '上學期' ? 1 : tl.seg === '下學期' ? 2 : 0) : 1,
     交往回合: st.flags.交往中 && st.partner ? Math.max(0, st.turn - st.partner.since) : 0,
     回合: st.turn, 假期: tl ? !!tl.vacation : false, 寒假: tl ? tl.seg === '寒假' : false, 考試週: examNow,
+    // 態度與人際（隱藏數值，取整數給條件用）；本學期的出缺勤＝累計減去上個學期結束時的快照
+    師長印象: Math.round(s.師長印象 ?? 50), 同儕信任: Math.round(s.同儕信任 ?? 50),
+    本學期遲到: attNow(st, '遲到'), 本學期缺掃: attNow(st, '缺掃'),
     家裡狀況: (st.fam && st.fam.shock && st.fam.shock.id) || '',
     網友回合: st.netStart == null ? -1 : st.turn - st.netStart,
     // 變數槽用：技高類科、都會、月份、最弱／最強的科目
@@ -134,6 +138,7 @@ export function buildCtx(st, tl) {
     明星: id.schoolTier === 'star' || id.schoolTier === 'pstar', 學程: id.program || '', 家庭: id.family.structure, 繼親: id.family.step || '', 同住: id.family.parent,
   };
 }
+const attNow = (st, k) => ((st.att && st.att[k]) || 0) - ((st.semBase && st.semBase.att && st.semBase.att[k]) || 0);
 // 各科天分裡最弱（dir=-1）或最強（dir=1）的一科；沒有天分資料就回空字串
 function aptExtreme(apt, dir) {
   const ks = Object.keys(apt || {});
@@ -143,7 +148,7 @@ function aptExtreme(apt, dir) {
 /* ───────────── 效果 ───────────── */
 const RANGE = {
   專注: [0, 100], 理解: [0, 100], 體力: [0, 100], 聯繫: [0, 100], 知心: [0, 5], 心情: [0, 100], 幸福: [0, 100],
-  錢包: [0, 1e9], 投資: [0, 1e9], 投資本金: [0, 1e9], 睡眠債: [0, 10], 牽掛: [0, 10], 假熟悉: [0, 30], 班級氣氛: [0, 1], 興趣: [0.8, 1.2], 露餡: [0, 10], AI依賴: [0, 10], 親子: [0, 100], 資訊: [0, 100],
+  錢包: [0, 1e9], 投資: [0, 1e9], 投資本金: [0, 1e9], 睡眠債: [0, 10], 牽掛: [0, 10], 假熟悉: [0, 30], 班級氣氛: [0, 1], 興趣: [0.8, 1.2], 露餡: [0, 10], AI依賴: [0, 10], 親子: [0, 100], 資訊: [0, 100], 師長印象: [0, 100], 同儕信任: [0, 100],
 };
 export const VISIBLE_KEYS = ['心情', '聯繫', '知心', '體力', '錢包', '分數'];
 
@@ -165,14 +170,16 @@ export function cardById(data, id) {
   return c;
 }
 
-function eligible(card, st, ctx) {
+function eligible(card, st, ctx, ignoreGate) {
   if (card.pool.startsWith('_')) return false;
   if (card.once && st.used[card.id]) return false;
   if ((st.cooldowns[card.id] || -1) > st.turn) return false;
-  return passes(card, st, ctx);
+  return passes(card, st, ctx, ignoreGate);
 }
-export function passes(card, st, ctx) {
+export function passes(card, st, ctx, ignoreGate) {
   const rq = card.requires, ex = card.excludes;
+  // gateMin：師長印象／同儕信任不夠高就不會出現的資源卡（老師主動推薦等）
+  if (card.gateMin && !ignoreGate) for (const [k, v] of Object.entries(card.gateMin)) if ((st.stats[k] ?? 50) < v) return false;
   if (rq) {
     if (rq.flags && !rq.flags.every((f) => st.flags[f])) return false;
     if (rq.expr && !evalCond(rq.expr, ctx)) return false;
@@ -183,21 +190,64 @@ export function passes(card, st, ctx) {
   }
   return true;
 }
-function mulMods(mods, ctx) {
+function mulMods(mods, ctx, skipStat) { // skipStat：略過依師長印象／同儕信任打折的那幾條（算「本來的」權重用）
   let x = 1;
-  if (mods) for (const m of mods) if (evalCond(m.if, ctx)) x *= m.x;
+  if (mods) for (const m of mods) if (!(skipStat && STAT_MOD.test(m.if)) && evalCond(m.if, ctx)) x *= m.x;
   return x;
+}
+// 記下「因為態度而被壓低的機會」，結局的態度與人際會用。近似做法：每次抽卡時，對每張被師長印象／同儕信任打折（係數 f < 1）
+// 的可抽卡，把「本來的抽中比例 ×（1 − f）」累加到 st.missed（浮點數，期望值，不是真的某一張被擋掉）。
+// 本來的抽中比例 ＝ 池子占比 × 該卡在池內占比（拿掉這兩條打折後的權重）；沒有消耗亂數，不影響抽卡結果。
+// gateMin 的資源卡（只差印象不夠高）：照「若符合條件的抽中比例」累加，印象低於 40 才累加；每張上限 SHADOW_CAP（約等於一直很有禮貌的人實際拿到的次數）。
+const SHADOW_CAP = 0.25;
+function trackMissed(st, byPool, pools, ctx, shadow) {
+  const total = pools.reduce((a, p) => a + p.w, 0);
+  if (!(total > 0)) return;
+  for (const c of shadow) {
+    const p = pools.find((x) => x.name === c.pool), cs = byPool[c.pool];
+    if (!p || !cs || Object.keys(c.gateMin).some((k) => (st.stats[k] ?? 50) >= 40)) continue; // 印象還在 40 以上只是還沒累積夠，不算被錯過
+    const kind = Object.keys(c.gateMin).map((k) => (k === '師長印象' ? 'teacher' : 'peer'))[0];
+    const by = (st.missedBy ||= {}), wc = (c.weight ?? 1) * mulMods(c.modifiers, ctx);
+    const sum0 = cs.reduce((a, x) => a + (x.weight ?? 1) * mulMods(x.modifiers, ctx, true), 0) + wc;
+    const add = Math.min(SHADOW_CAP - (by[c.id] || 0), (p.w / total) * (wc / sum0));
+    if (add > 0) { by[c.id] = (by[c.id] || 0) + add; (st.missed ||= { teacher: 0, peer: 0 })[kind] += add; }
+  }
+  for (const p of pools) {
+    const cs = byPool[p.name];
+    let hit = null;
+    for (const c of cs) {
+      if (!c.modifiers || !c.modifiers.some((m) => STAT_MOD.test(m.if))) continue;
+      const f = { teacher: 1, peer: 1 };
+      for (const m of c.modifiers) { const k = modKind(m); if (k && evalCond(m.if, ctx)) f[k] *= m.x; }
+      if (f.teacher < 1 || f.peer < 1) (hit ||= []).push([c, f]);
+    }
+    if (!hit) continue;
+    const w0 = cs.map((c) => (c.weight ?? 1) * mulMods(c.modifiers, ctx, true));
+    const sum0 = w0.reduce((a, b) => a + b, 0);
+    if (!(sum0 > 0)) continue;
+    const m = (st.missed ||= { teacher: 0, peer: 0 });
+    for (const [c, f] of hit) {
+      const share = (p.w / total) * (w0[cs.indexOf(c)] / sum0);
+      if (f.teacher < 1) m.teacher += (1 - f.teacher) * share;
+      if (f.peer < 1) m.peer += (1 - f.peer) * share;
+    }
+  }
 }
 
 /** 兩段式抽卡：先抽池子，再抽卡。找不到就回傳 null。 */
 export function drawCard(st, data, ctx, r) {
   const byPool = {};
-  for (const c of data.events.cards) if (eligible(c, st, ctx)) (byPool[c.pool] ||= []).push(c);
+  const shadow = [];
+  for (const c of data.events.cards) {
+    if (eligible(c, st, ctx)) (byPool[c.pool] ||= []).push(c);
+    else if (c.gateMin && eligible(c, st, ctx, true)) shadow.push(c); // 只差印象不夠高：算「錯過的機會」
+  }
   const pools = Object.keys(byPool).map((name) => ({
     name, w: (data.events.pools[name]?.base ?? 3) * mulMods(data.events.pools[name]?.mods, ctx),
   }));
   const pool = pickWeighted(r, pools);
   if (!pool) return null;
+  trackMissed(st, byPool, pools, ctx, shadow);
   return pickWeighted(r, byPool[pool.name], (c) => (c.weight ?? 1) * mulMods(c.modifiers, ctx));
 }
 
@@ -316,6 +366,7 @@ export function applyChoice(st, data, card, idx, ctx, r, turnNo) {
     st.delayed.push({ event: 'debt_favor', due: turnNo + 2 + Math.floor(r() * 3) });
   }
   st.stats.錢包 = Math.max(0, st.stats.錢包);
+  if (ch.att) { st.att ||= {}; for (const [k, d] of Object.entries(ch.att)) st.att[k] = (st.att[k] || 0) + d; } // 出缺勤與獎懲的計數（結局與學期紀錄用）
   for (const f of ch.setFlags || []) st.flags[f] = true;
   if (ch.ladder) { const nx = ch.ladder.find((f) => !st.flags[f]); if (nx) st.flags[nx] = true; } // 計次旗標：第一次設第一個、第二次設第二個……
   for (const f of ch.clearFlags || []) delete st.flags[f];
@@ -326,7 +377,9 @@ export function applyChoice(st, data, card, idx, ctx, r, turnNo) {
   if (ch.setCommute) st.identity.commute = ch.setCommute;
   for (const d of ch.delayed || []) {
     if (d.if && !evalCond(d.if, ctx)) continue; // 可選的條件：不符合就不排這個後續
-    const hit = r() < d.chance * (d.event === 'fam_scholarship' ? 0.8 + 0.4 * ((st.stats.親子 ?? 50) / 100) : 1);
+    const gf = d.gate ? gateFactor(d.gate, st) : 1; // gate：老師推薦／同學邀約依師長印象、同儕信任調整機率
+    if (gf < 1) { const m = (st.missed ||= { teacher: 0, peer: 0 }); m[d.gate] += d.chance * (1 - gf); }
+    const hit = r() < Math.min(1, d.chance * gf) * (d.event === 'fam_scholarship' ? 0.8 + 0.4 * ((st.stats.親子 ?? 50) / 100) : 1);
     const ev = hit ? d.event : d.else;
     let due;
     if (d.atTurn) { // 綁定在特定回合區間（例如高三、畢旅前）；已經錯過就不排
@@ -341,6 +394,9 @@ export function applyChoice(st, data, card, idx, ctx, r, turnNo) {
   if (ch.declineGame && st.gameDecline % 3 === 0) extra = '公會的人問你是不是不玩了。';
   if (card.once) st.used[card.id] = true;
   if (card.cooldown) st.cooldowns[card.id] = turnNo + card.cooldown + 1;
+  if (card.missed) (st.missed ||= { teacher: 0, peer: 0 })[card.missed] += 1; // 「沒人找你」這類卡本身就是一次錯過的邀約
+  const act = actOf(card, ch);
+  if (act) (st.acts ||= []).push({ turn: turnNo, text: act });
   st.choices.push({ turn: turnNo, id: card.id, title: fill(card.title, st), label: fill(ch.label, st), commute: ch.setCommute || null, spend: !!ch.spend, ...(ch.setFlags && { fl: ch.setFlags }) }); // fl：線上動態用
   if (card.payoffOf) { // 「早先的選擇」帶來的後果：記下來，結局報告會列出
     const e = ch.effects || {};

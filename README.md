@@ -38,7 +38,7 @@ js/engine/            純函式引擎，不碰 DOM，可在 Node 使用
   life.js             真實機率的人生事件
   peers.js            999 個平行同儕
   report.js           學期報告、終局報告、SVG 小圖
-data/                 identities / events / calendar / life_events（JSON）
+data/                 identities / events / events_campus / events_payoff（前因後果卡）/ calendar / life_events（JSON）
 tests/engine.test.mjs node:test
 tools/simulate.mjs    批次模擬
 ```

@@ -453,6 +453,7 @@ export function renderEnding(root, e, { onSame, onNew, seed, avatar }) {
       h('div', { class: 'paper' }, h('h3', null, '這些是你選的'), h('ul', null, e.chosenDrawn.chosen.map((t) => h('li', null, t)))),
       h('div', { class: 'paper' }, h('h3', null, '這些是你抽到的'), h('ul', null, e.chosenDrawn.drawn.map((t) => h('li', null, t)))),
     ),
+    e.payoffs && e.payoffs.length > 0 && h('div', { class: 'paper', style: 'margin-top:14px' }, h('h3', null, '你的選擇，後來……'), h('ul', null, e.payoffs.map((t) => h('li', null, t)))),
     h('div', { class: 'paper', style: 'margin-top:14px' }, h('h3', null, '如果重來'), h('p', null, e.whatIf)),
     h('p', { class: 'small muted', style: 'margin-top:14px' }, e.footnote),
     btns,

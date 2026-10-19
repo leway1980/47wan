@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { prepareData, playTurn, playToEnd, startTurn, chooseCard, finishTurn, TOTAL_TURNS } from '../js/engine/turn.js';
@@ -18,7 +18,7 @@ import { generateIdentity } from '../js/engine/identity.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const rd = (f) => JSON.parse(readFileSync(join(root, 'data', f), 'utf8'));
-const withCampus = () => { const e = rd('events.json'); e.cards.push(...rd('events_campus.json').cards); return e; };
+const withCampus = () => { const e = rd('events.json'); for (const f of readdirSync(join(root, 'data')).sort()) if (/^events_.+\.json$/.test(f)) e.cards.push(...rd(f).cards); return e; };
 const raw = () => ({ identities: rd('identities.json'), events: withCampus(), calendar: rd('calendar.json'), life_events: rd('life_events.json') });
 const data = prepareData(raw());
 
@@ -573,4 +573,184 @@ test('校園卡：學測前閉關一個月在高三上最後幾回合出現', ()
     }
   }
   assert.equal(seen, 20, `閉關出現 ${seen}/20`);
+});
+
+/* ───────────── 前因後果（consequence threads）與結構性降低手機 ───────────── */
+const stub = (seed, turn) => { const st = newState(seed, data); st.turn = turn; return st; };
+
+test('前因後果：payoffOf 的卡被選後記進 st.payoffs，結局列出「{setup} → {title}」，最糟的後果成為「如果重來」', () => {
+  const st = playToEnd(newState(11, data), data, scripted(11));
+  st.payoffs = [];
+  st.choices.push({ turn: 20, id: 'group_fight', title: '群組吵架', label: '默默潛水，不要被牽扯' });
+  const card = data.cardIndex.pay_nobody_speaks;
+  applyChoice(st, data, card, 1, buildCtx(st, data.timeline[60]), stateRng(st), 60);
+  assert.equal(st.payoffs.length, 1);
+  const p = st.payoffs[0];
+  assert.equal(p.turn, 60); assert.equal(p.title, card.title); assert.equal(p.setup, card.payoffOf);
+  assert.equal(p.setupTurn, 20); assert.equal(p.tone, 'bad');
+  const e = buildEnding(st, data);
+  assert.deepEqual(e.payoffs, [`${card.payoffOf} → ${card.title}`]);
+  assert.ok(e.whatIf.includes('默默潛水') && e.whatIf.includes(card.title), e.whatIf);
+  // 沒有後果就是空的；最多列 6 項
+  st.payoffs = [];
+  assert.deepEqual(buildEnding(st, data).payoffs, []);
+  st.payoffs = Array.from({ length: 9 }, (_, i) => ({ turn: i, setup: 's' + i, title: 't' + i, label: '', tone: 'good', val: 1, setupTurn: null }));
+  assert.equal(buildEnding(st, data).payoffs.length, 6);
+});
+
+test('前因後果資料：至少 14 條線，每張後果卡都有 payoffOf／payoffSetup，文字回想起早先的選擇', () => {
+  const pays = data.events.cards.filter((c) => c.payoffOf);
+  assert.ok(pays.length >= 30, `後果卡 ${pays.length}`);
+  const setups = new Set(pays.map((c) => c.payoffSetup));
+  assert.ok(setups.size >= 14, `線數 ${setups.size}`);
+  for (const c of pays) {
+    assert.ok(data.cardIndex[c.payoffSetup], `${c.id} 的起點 ${c.payoffSetup}`);
+    assert.ok(['good', 'bad'].includes(c.payoffTone), `${c.id} tone`);
+    assert.match(c.text, /還記得|想起|上次|之前/, `${c.id} 沒有回想早先的選擇`);
+  }
+  assert.ok(pays.some((c) => c.payoffTone === 'good') && pays.some((c) => c.payoffTone === 'bad'));
+  // 設定段：記憶旗標（記_）或長延遲（至少一邊 ≥10 回合）
+  let longDelay = 0;
+  for (const c of data.events.cards) for (const ch of c.choices) for (const d of ch.delayed || []) if ((d.after && d.after[1] >= 10) || d.atTurn) longDelay++;
+  assert.ok(longDelay >= 14);
+  assert.ok(data.events.cards.some((c) => c.choices.some((ch) => (ch.setFlags || []).some((f) => f.startsWith('記_')))));
+});
+
+test('延遲事件：被固定劇情佔掉的回合不會丟，等下一個空回合；依到期先後；超過終點不出錯', () => {
+  const st = newState(2, data);
+  st.delayed.push({ event: 'pay_cadre_burnout', due: 0 });
+  startTurn(st, data); // 第 0 回合有固定的新生訓練
+  assert.equal(st.cur.card.id, 'orientation');
+  assert.equal(st.delayed.length, 1, '延遲事件要留著');
+  chooseCard(st, data, 0); finishTurn(st, data);
+  const res = startTurn(st, data);
+  assert.equal(res.card.id, 'pay_cadre_burnout');
+  assert.equal(st.delayed.length, 0);
+  // 先到期的先出現
+  const s2 = stub(2, 1);
+  s2.delayed.push({ event: 'pay_cadre_letter', due: 1 }, { event: 'pay_cadre_burnout', due: 0 });
+  assert.equal(startTurn(s2, data).card.id, 'pay_cadre_burnout');
+  assert.equal(s2.delayed.length, 1);
+  // 只會出現一次的卡不會重複；找不到的事件（舊存檔）會被略過
+  const s3 = stub(2, 1);
+  s3.used.pay_cadre_letter = true;
+  s3.delayed.push({ event: 'pay_cadre_letter', due: 0 }, { event: '不存在的事件', due: 0 });
+  startTurn(s3, data);
+  assert.ok(!s3.cur.card || s3.cur.card.id !== 'pay_cadre_letter');
+  assert.equal(s3.delayed.length, 0);
+  // 很久以後才到期：玩到結束不會出錯，條目還在
+  const s4 = newState(4, data);
+  s4.delayed.push({ event: 'pay_cadre_letter', due: 500 });
+  playToEnd(s4, data, scripted(4));
+  assert.ok(s4.ended);
+  assert.ok(s4.delayed.some((d) => d.due === 500));
+});
+
+test('延遲事件：atTurn 綁定回合區間、need 在到期時才檢查', () => {
+  const card = data.cardIndex.pay_cadre_letter; void card;
+  const setup = data.cardIndex.crush_confess;
+  const st = stub(3, 10);
+  applyChoice(st, data, setup, 0, buildCtx(st, data.timeline[10]), stateRng(st), 10);
+  const sup = st.delayed.filter((d) => d.event === 'pay_couple_support' || d.event === 'pay_couple_breakup');
+  assert.equal(sup.length, 1);
+  assert.ok(sup[0].due >= 56 && sup[0].due <= 58 && sup[0].need === '#交往中');
+  // 到期時不再交往 ⇒ 不出現；仍在交往 ⇒ 出現
+  const a = stub(3, 57); a.delayed.push({ event: 'pay_couple_support', due: 57, need: '#交往中' });
+  startTurn(a, data);
+  assert.ok(!a.cur.card || a.cur.card.id !== 'pay_couple_support');
+  assert.equal(a.delayed.length, 0);
+  const b = stub(3, 57); b.flags.交往中 = true; b.delayed.push({ event: 'pay_couple_support', due: 57, need: '#交往中' });
+  assert.equal(startTurn(b, data).card.id, 'pay_couple_support');
+  // 區間已過就不排
+  const late = stub(3, 60);
+  applyChoice(late, data, setup, 0, buildCtx(late, data.timeline[60]), stateRng(late), 60);
+  assert.ok(!late.delayed.some((d) => d.event.startsWith('pay_couple')));
+});
+
+test('計次旗標 ladder：第一次設 記_幫家裡，第二次設 記_幫家裡2', () => {
+  const st = stub(5, 4);
+  const card = data.cardIndex.family_help;
+  const ap = () => applyChoice(st, data, card, 0, buildCtx(st, data.timeline[4]), stateRng(st), 4);
+  ap(); assert.ok(st.flags.記_幫家裡 && !st.flags.記_幫家裡2);
+  ap(); assert.ok(st.flags.記_幫家裡 && st.flags.記_幫家裡2);
+  ap(); assert.ok(st.flags.記_幫家裡2);
+});
+
+test('手機悄悄變多：有 IG 或在玩遊戲，每回合約 6% 手機 +1（最多 4），保管／螢幕時間期間不會', () => {
+  const tl = data.timeline[5];
+  const run = (mut) => {
+    let creeps = 0;
+    for (let seed = 1; seed <= 600; seed++) {
+      const st = stub(seed, 5); st.habits.遊戲 = 0; delete st.flags.IG; st.habits.手機 = 2;
+      mut(st);
+      const lines = applyHabits(st, data, tl, stateRng(st));
+      const hit = lines.includes('不知不覺，你滑手機的時間又變長了。');
+      assert.equal(hit, st.habits.手機 === 3, '有 log 才會 +1');
+      if (hit) creeps++;
+    }
+    return creeps;
+  };
+  const withIG = run((st) => { st.flags.IG = true; });
+  assert.ok(withIG >= 15 && withIG <= 65, `IG：${withIG}/600`);
+  const withGame = run((st) => { st.habits.遊戲 = 1; });
+  assert.ok(withGame >= 15 && withGame <= 65, `遊戲：${withGame}/600`);
+  assert.equal(run(() => {}), 0, '沒有 IG 也沒玩遊戲就不會');
+  assert.equal(run((st) => { st.flags.IG = true; st.rule = { cap: 2, until: 99, label: '交給家長保管' }; }), 0, '有保管時不會');
+  const full = stub(1, 5); full.flags.IG = true; full.habits.手機 = 4;
+  for (let t = 0; t < 40; t++) { full.turn = t; applyHabits(full, data, data.timeline[t], stateRng(full)); }
+  assert.equal(full.habits.手機, 4, '最高 4');
+  // 整局：只靠 IG 的人手機等級平均會往上
+  let up = 0;
+  for (let seed = 1; seed <= 20; seed++) { const st = stub(seed, 0); st.flags.IG = true; st.habits.手機 = 1; for (let t = 0; t < 60; t++) { st.turn = t; applyHabits(st, data, data.timeline[t], stateRng(st)); } up += st.habits.手機; }
+  assert.ok(up / 20 > 2, `平均 ${up / 20}`);
+});
+
+test('結構性降低：手機／遊戲不能只靠決定；保管、密碼、功能機是 phoneCap，且有復發的機會', () => {
+  for (const c of data.events.cards) for (const ch of c.choices) {
+    for (const k of ['手機', '遊戲']) {
+      if ((ch.addHabits?.[k] ?? 0) < 0) assert.ok(ch.phoneCap || (ch.setFlags || []).some((f) => /保管|刪帳號/.test(f)), `${c.id}／${ch.label}`);
+    }
+    for (const k of ['手機', '遊戲']) if (typeof ch.setHabits?.[k] === 'number') assert.fail(`${c.id}／${ch.label} 直接設定 ${k}`);
+  }
+  const help = data.cardIndex.phone_help;
+  const byLabel = (s) => help.choices.findIndex((ch) => ch.label.includes(s));
+  const st = stub(8, 10); st.habits.手機 = 4;
+  const ctx = buildCtx(st, data.timeline[10]);
+  applyChoice(st, data, help, byLabel('交給{家長}保管'), ctx, stateRng(st), 10);
+  assert.deepEqual([st.rule.cap, st.rule.until, st.rule.label], [2, 16, '交給家長保管']);
+  assert.ok(st.flags.手機保管);
+  applyChoice(st, data, help, byLabel('螢幕時間密碼'), ctx, stateRng(st), 10);
+  assert.deepEqual([st.rule.cap, st.rule.until], [2, 18]);
+  applyChoice(st, data, help, byLabel('功能型手機'), ctx, stateRng(st), 10);
+  assert.deepEqual([st.rule.cap, st.rule.until], [1, 20]);
+  assert.ok(help.choices[byLabel('功能型手機')].effects.聯繫 <= -5, '功能機要付出很大的聯繫代價');
+  // 保管期間的手機效果被壓低、玩家自己的等級不變
+  const capped = JSON.parse(JSON.stringify(st)), free = JSON.parse(JSON.stringify(st));
+  free.rule = null; capped.turn = free.turn = 11;
+  applyHabits(capped, data, data.timeline[11], stateRng(capped)); applyHabits(free, data, data.timeline[11], stateRng(free));
+  assert.equal(capped.habits.手機, 4);
+  assert.ok(capped.stats.專注 > free.stats.專注 || capped.stats.心情 !== free.stats.心情);
+  // 復發：找到手機／密碼被猜到 ⇒ 限制提早結束，手機 +1
+  for (const id of ['phone_relapse_find', 'phone_relapse_pw']) {
+    const s2 = stub(8, 12); s2.habits.手機 = 2; s2.rule = { cap: 2, until: 99, label: 'x' }; s2.flags.手機保管 = true;
+    applyChoice(s2, data, data.cardIndex[id], 0, buildCtx(s2, data.timeline[12]), stateRng(s2), 12);
+    assert.equal(s2.rule, null); assert.equal(s2.habits.手機, 3);
+  }
+  // 刪帳號／交給朋友保管：遊戲 -1，並排了 30–40% 的復發卡
+  const q = data.cardIndex.mobile_game_quit;
+  for (const ch of q.choices.filter((c) => c.addHabits?.遊戲 < 0)) {
+    const d = ch.delayed.find((x) => x.event === 'game_relapse');
+    assert.ok(d && d.chance >= 0.3 && d.chance <= 0.4);
+  }
+  const s3 = stub(9, 12); s3.habits.遊戲 = 1;
+  applyChoice(s3, data, data.cardIndex.game_relapse, 0, buildCtx(s3, data.timeline[12]), stateRng(s3), 12);
+  assert.equal(s3.habits.遊戲, 2);
+});
+
+test('資料檢查：手機／遊戲只靠決定就減少會有提醒；現有資料沒有這種選項', async () => {
+  const { lintData, loadRaw } = await import('../tools/lint-data.mjs');
+  assert.ok(!lintData().warns.some((w) => w.includes('只靠決定')));
+  const bad = loadRaw();
+  bad.events.cards.find((c) => c.id === 'ig_trip_story').choices[0].addHabits = { 手機: -1 };
+  assert.ok(lintData(bad).warns.some((w) => w.includes('只靠決定')));
 });

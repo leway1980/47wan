@@ -1,6 +1,6 @@
 // 用法：node tools/simulate.mjs [局數=2000] [起始種子=1]
 // 隨機習慣＋隨機選項，自動玩 N 局，統計結局分布、死亡率、平均理解與人生事件次數。
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { prepareData, playToEnd } from '../js/engine/turn.js';
@@ -12,7 +12,8 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const rd = (f) => JSON.parse(readFileSync(join(root, 'data', f), 'utf8'));
 
 export function loadData() {
-  const events = rd('events.json'); events.cards.push(...rd('events_campus.json').cards);
+  const events = rd('events.json');
+  for (const f of readdirSync(join(root, 'data')).sort()) if (/^events_.+\.json$/.test(f)) events.cards.push(...rd(f).cards); // 校園卡、前因後果卡等
   return prepareData({ identities: rd('identities.json'), events, calendar: rd('calendar.json'), life_events: rd('life_events.json') });
 }
 

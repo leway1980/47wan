@@ -68,18 +68,18 @@ const COVER = { 自己就是資源: 0.4, 花錢買資源: 0.7, 自己找資源: 
 const IG_LOOK_LINES = ['你的自拍被很多人按愛心。', '有人在你的貼文留言「今天好好看」，你笑了一下。', '隔壁班有人私訊說想認識你。'];
 const IG_LINES = ['你的限動被 23 個人看過，有 2 個人回覆。', '有人在限動 tag 你，你想了一下要怎麼回。', '同學私訊你：「在嗎？」你回完已經過了半小時。', '你滑了別人的出遊限動十分鐘。', '群組裡有人問你怎麼都沒回限動。', '有人按了你半年前的貼文愛心，你有點在意。', '你看到同學一起去吃飯的限動，你不在裡面。', '新追蹤你的人說是隔壁班的，你回追了。'];
 const GAME_LINES = ['每日任務還沒解完，你先上線點一下。', '限時活動只剩三天，你又打開了遊戲。', '公會戰今晚八點，你一直看時間。', '登入送十抽，你捨不得不領。', '體力條滿了，你找理由再上去一下。', '朋友說副本差一個人，你的手已經在滑。'];
-export const PHONE_CREEP = 0.06;
+export const PHONE_CREEP = 0.03; // 每回合手機用量慢慢變多的機率；自然爬升最多到 3 級，4 級只會因為事件
 const CREEP_LINE = '不知不覺，你滑手機的時間又變長了。';
 export function applyHabits(st, data, tl, r) {
   // 家規期間手機等級被壓住，但不改玩家自己的設定；期滿後自動恢復
   const H = st.habits;
   const capped = !!(st.rule && st.turn < st.rule.until);
   // 手機悄悄變多：有 IG 或在玩遊戲的人，每回合約 6% 會不知不覺滑得更久（有保管／螢幕時間限制時不會）
-  const creep = !capped && (st.flags.IG || H.遊戲 >= 1) && H.手機 < 4 && rngAt(st.seed, st.turn, 'phonecreep') < PHONE_CREEP;
+  const creep = !capped && (st.flags.IG || H.遊戲 >= 1) && H.手機 < 3 && rngAt(st.seed, st.turn, 'phonecreep') < PHONE_CREEP;
   if (creep) H.手機 += 1;
   const own = H.手機;
   // 手機帶進房間：沒有事件特別決定過，就跟著手機用量走（用很多的人通常會帶進房間）
-  if (!st.flags.睡前定了) H.睡前手機 = H.手機 >= 3;
+  if (!st.flags.睡前定了) H.睡前手機 = H.手機 >= 4; // 4 級＝隨時在線＋睡前（設計文件 3.3）
   if (capped) H.手機 = Math.min(own, st.rule.cap);
   try { const lines = applyHabitsInner(st, data, tl, r); return creep ? [CREEP_LINE, ...lines] : lines; } finally { H.手機 = own; }
 }

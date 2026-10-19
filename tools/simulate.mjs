@@ -40,12 +40,14 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const data = loadData();
   const t0 = Date.now();
   const dist = {}, arche = {}, lifeCt = {}, commuteCt = {};
+  let sumW = 0, scamGames = 0, scamN = 0, scamLoss = 0, workGames = 0;
   let deaths = 0, sumU = 0, sumFocus = 0, sumDebt = 0, retake = 0;
   const uBy = {};
   for (let i = 0; i < N; i++) {
     const st = newState(s0 + i, data);
     playToEnd(st, data, randomPolicy(st));
     const e = buildEnding(st, data);
+    sumW += st.stats.錢包; if ((st.scams || []).length) { scamGames++; scamN += st.scams.length; scamLoss += st.scams.reduce((a, x) => a + x.loss, 0); }
     if (st.dead) { deaths++; dist['（死亡）'] = (dist['（死亡）'] || 0) + 1; }
     else dist[e.outcome.type] = (dist[e.outcome.type] || 0) + 1;
     arche[e.archetype] = (arche[e.archetype] || 0) + 1;
@@ -62,6 +64,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   for (const [k, v] of Object.entries(arche).sort()) console.log(`  ${k}  ${String(v).padStart(5)}  ${pct(v)}  平均理解 ${(uBy[k].reduce((a, b) => a + b, 0) / v).toFixed(1)}`);
   console.log(`\n死亡：${deaths} 局（${(deaths / N * 100).toFixed(3)}%）`);
   console.log(`平均理解 ${(sumU / N).toFixed(1)}｜平均專注 ${(sumFocus / N).toFixed(1)}｜平均睡眠債 ${(sumDebt / N).toFixed(2)}`);
+  console.log(`平均期末錢包 NT$${Math.round(sumW / N).toLocaleString('en-US')}｜遇到詐騙的局 ${pct(scamGames)}（共 ${scamN} 次，平均每次損失 NT$${scamN ? Math.round(scamLoss / scamN) : 0}）`);
   console.log('\n開局通勤方式：', Object.entries(commuteCt).map(([k, v]) => `${k} ${pct(v)}`).join('、'));
   console.log('\n人生事件次數：');
   const keys = Object.keys(lifeCt);

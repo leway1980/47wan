@@ -119,9 +119,9 @@ export function buildCtx(st, tl) {
     手機: h.手機, 零用錢: h.零用錢 || '花掉', 睡前手機: h.睡前手機 ? 1 : 0, 補習: h.補習, 運動: h.運動, 遊戲: h.遊戲, 作業: h.作業, 課堂: h.課堂,
     經濟: id.family.econ, 支援: id.family.support, 學校: id.schoolType, 通勤: id.commute,
     家規: id.parentRule || '普通', 手機上限中: !!(st.rule && st.turn < st.rule.until), AI依賴: s.AI依賴 ?? 0, 親子: s.親子 ?? 50,
-    地區: id.tier, 職業: id.family.job, 風格: id.family.style,
+    地區: id.tier, 職業: id.family.job, 風格: id.family.style, 性別: id.sex,
     年級: tl ? tl.year : 1, 學期: tl ? (tl.seg === '上學期' ? 1 : tl.seg === '下學期' ? 2 : 0) : 1,
-    回合: st.turn, 假期: tl ? !!tl.vacation : false, 考試週: examNow,
+    回合: st.turn, 假期: tl ? !!tl.vacation : false, 寒假: tl ? tl.seg === '寒假' : false, 考試週: examNow,
     家裡狀況: (st.fam && st.fam.shock && st.fam.shock.id) || '',
   };
 }
@@ -226,7 +226,8 @@ export function describeCard(card, st, ctx) {
       const chips = Object.entries(ch.effects || {}).filter(([, v]) => v !== 0).map(([k, v]) => ({ k, dir: v > 0 ? 1 : -1 }));
       if (ch.cost && !(ch.effects && ch.effects.錢包)) chips.push({ k: '錢包', dir: -1 });
       // 隱藏效果或延遲事件只露出「有後續」，不洩漏內容
-      if (owe || (ch.hidden && Object.keys(ch.hidden).length) || (ch.delayed && ch.delayed.length)) chips.push({ k: '？後續', dir: 0 });
+      if (ch.refundScam) chips.push({ k: '錢包', dir: 1 });
+      if (owe || ch.scam || (ch.hidden && Object.keys(ch.hidden).length) || (ch.delayed && ch.delayed.length)) chips.push({ k: '？後續', dir: 0 });
       const note = owe ? `錢包不夠，要先請同學墊 NT$${owe}（欠人情）` : ch.note || '';
       return { i, label: ch.label, note, chips, disabled, reason, owe };
     }),
@@ -243,6 +244,17 @@ export function applyChoice(st, data, card, idx, ctx, r, turnNo) {
   if (ch.cost && (st.habits.零用錢 || '花掉') !== '花掉') addStat(st, '心情', -1); // 花下去會心疼
   if (ch.phoneCap) st.rule = { cap: ch.phoneCap.cap, until: turnNo + ch.phoneCap.turns, label: ch.phoneCap.label || null };
   if (ch.investMul) { st.stats.投資 *= ch.investMul; }
+  if (ch.scam) { // 詐騙損失：記錄下來，結局報告會提到
+    const [lo, hi] = ch.scamLoss || [0, 0];
+    const extra = Math.min(Math.max(0, st.stats.錢包), Math.round((lo + r() * (hi - lo)) / 100) * 100);
+    st.stats.錢包 -= extra;
+    const paid = (ch.cost || 0) + Math.max(0, -((ch.effects && ch.effects.錢包) || 0)); // 選項本身就要付的錢（例如轉帳訂金）
+    (st.scams ||= []).push({ turn: turnNo, type: ch.scam, loss: extra + paid });
+  }
+  if (ch.refundScam) { // 追回部分被騙的錢
+    const last = [...(st.scams || [])].reverse().find((x) => x.loss > 0);
+    if (last) st.stats.錢包 += Math.round((last.loss * ch.refundScam) / 100) * 100;
+  }
   if (ch.sellInvest) { st.stats.錢包 += st.stats.投資; st.stats.投資 = 0; st.stats.投資本金 = 0; }
   if (ch.toInvest) { st.stats.投資 += ch.toInvest; st.stats.投資本金 += ch.toInvest; } // 錢已由 effects 的 錢包 扣除
   applyEffects(st, ch.effects);

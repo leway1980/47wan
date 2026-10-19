@@ -238,6 +238,11 @@ export function buildEnding(st, data) {
   if (!changed) drawn.push(`每天通勤的方式：${id.commuteOrig}`);
   const seen = [...new Set(st.choices.map((c) => c.title))].slice(0, 5);
   if (seen.length) drawn.push(`遇到的事：${seen.map((t) => '「' + t + '」').join('、')}`);
+  const scams = st.scams || [];
+  if (scams.length) {
+    const tot = scams.reduce((a, x) => a + x.loss, 0);
+    drawn.push(`這三年你遇過 ${scams.length} 次網路詐騙${tot ? `，損失 NT$${tot.toLocaleString('en-US')}` : '，沒有實際損失'}。`);
+  }
   for (const l of st.luck) drawn.push(`${formatDate(tlOf(l.turn).start)} ${l.text}`);
 
   // 如果重來：專注掉最多的那個回合
@@ -292,6 +297,6 @@ export function buildEnding(st, data) {
     ],
     good: txt.good, regret: txt.regret, curves, chosenDrawn: { chosen, drawn }, whatIf,
     reveal: `你的心情平均 ${mean(hs.map((h) => h.心情)).toFixed(0)}，真實幸福平均 ${mean(hs.map((h) => h.幸福)).toFixed(0)}。短期開心和長期過得好，不一定是同一條線。`,
-    footnote: '以上是模型推估的可能性，不是預言；睡眠、手機與專注的關係來自研究共識，但數字是設計假設。',
+    footnote: '以上是模型推估的可能性，不是預言；睡眠、手機與專注的關係來自研究共識，但數字是設計假設。' + ((st.scams || []).length ? '被騙時先保留證據、撥 165 反詐騙專線。' : ''),
   };
 }

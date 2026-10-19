@@ -233,7 +233,7 @@ export function choiceState(ch, st, ctx) {
     else { disabled = true; reason = '錢包不夠'; }
   }
   // 想存錢／投資時，花錢的社交選項要多留一倍的餘裕才肯花（不是硬擋，錢多就能付）
-  if (!disabled && ch.cost && (st.habits.零用錢 || '花掉') !== '花掉' && st.stats.錢包 < ch.cost * 2) { disabled = true; reason = '想存錢'; }
+  if (!disabled && !owe && ch.cost && (st.habits.零用錢 || '花掉') !== '花掉' && st.stats.錢包 < ch.cost * 2) { disabled = true; reason = '想存錢'; }
   return { disabled, reason, owe };
 }
 

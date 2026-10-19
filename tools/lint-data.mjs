@@ -61,6 +61,8 @@ export function lintData(raw = loadRaw()) {
     if (c.excludes?.expr) checkExpr(c.excludes.expr, W);
     for (const m of c.modifiers || []) checkExpr(m.if, W);
     for (const t of c.textIf || []) checkExpr(t.if, W);
+    const isFree = (ch) => !(ch.cost || ((ch.effects || {}).錢包 || 0) < 0) || ch.canOwe;
+    if ((c.choices || []).length && !(c.choices || []).some((ch) => isFree(ch) && !ch.grayIf && !ch.repayDebt)) errors.push(`${W}：沒有任何「不用花錢、不會變灰」的選項，錢包見底時可能沒得選`);
     for (const ch of c.choices || []) {
       const WC = `${W}／${ch.label}`;
       for (const part of ['effects', 'hidden']) {

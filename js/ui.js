@@ -3,7 +3,32 @@ import { rngAt } from './engine/rng.js';
 import { visibleScore, focusPhrase } from './engine/state.js';
 import { formatDateLong } from './engine/report.js';
 import { avatarSVG } from './engine/avatar.js';
-import { shockView, parentLabel, tutorCap, tutorIsFree } from './engine/family.js';
+import { shockView, parentLabel, tutorCap, tutorIsFree, effectiveEcon } from './engine/family.js';
+
+// 粗估比例：「每 10 人有 4 人」比「1,000 人中 382 人」好讀
+const rough = (n) => {
+  const k = Math.round(Number(String(n).replace(/,/g, '')) / 100);
+  return k <= 0 ? '不到一成的人' : k >= 10 ? '幾乎每個人都' : `大約每 10 人有 ${k} 人`;
+};
+// 各科：最近一次段考，擅長的與不及格的
+function subjectLines(st) {
+  const ex = st.lastExam;
+  if (!ex) return [h('span', { class: 'pf-fam' }, '📝 還沒有段考成績')];
+  const subs = Object.entries(ex).sort((a, b) => b[1] - a[1]);
+  const good = subs.filter(([, v]) => v >= 75).slice(0, 2).map(([k]) => k);
+  const fail = subs.filter(([, v]) => v < 60).map(([k]) => k);
+  return [
+    h('span', { class: 'pf-fam' }, `⭐ 擅長：${good.length ? good.join('、') : `${subs[0][0]}（相對好一點）`}`),
+    h('span', { class: 'pf-fam' + (fail.length ? ' pf-warn' : '') }, fail.length ? `❗ 不及格：${fail.join('、')}` : '✅ 沒有不及格'),
+  ];
+}
+// 家境顯示目前實際的狀況：遇到失業、生意變差時，家境跟著降一級
+function famLine(st) {
+  const id = st.identity, now = effectiveEcon(st), sk = st.fam && st.fam.shock;
+  const econ = now === id.family.econ ? now : `${now}（原本${id.family.econ}）`;
+  const job = sk && sk.id === 'unemployed' ? `原本${id.family.job}` : id.family.job;
+  return `🏠 ${econ}・${parentLabel(st)}：${job}`;
+}
 
 const avHTML = (spec, opts) => avatarSVG(spec, opts);
 /** 淺色畫框：不論深淺主題都放在暖米色底上，深色頭髮才看得見。size: sm|md|lg|xl */
@@ -232,8 +257,12 @@ export function renderHabits(refs, st) {
       h('span', { class: 'pf-badge', 'data-badge': badge.t }, h('span', { 'aria-hidden': 'true' }, badge.i), badge.t),
       h('span', { class: 'pf-name' }, `${id.name}・${id.seat}號`),
       refs.profTerm,
-      h('span', { class: 'pf-school' }, id.school),
-      h('span', { class: 'pf-fam' }, `🏠 ${id.family.econ}・${parentLabel(st)}：${id.family.job}`),
+      h('span', { class: 'pf-school' }, `📍 ${id.county}${id.district}・${id.school}`),
+      h('span', { class: 'pf-fam' }, `🚌 通勤：${id.commute}`),
+      h('span', { class: 'pf-fam' }, famLine(st)),
+      h('span', { class: 'pf-fam' }, id.allowanceMonth ? `💵 零用錢：每月 ${id.allowanceMonth.toLocaleString('en-US')} 元` : '💵 沒有固定零用錢'),
+      h('span', { class: 'pf-fam' }, `📘 學群：${st.flags.自然學群 ? '自然學群' : st.flags.文法商學群 ? '文法商學群' : '還沒選（高一下選）'}`),
+      ...subjectLines(st),
       (st.stats.投資本金 || 0) > 0 && h('span', { class: 'pf-fam', 'data-invest': '1' }, `📈 投資 ${Math.round(st.stats.投資).toLocaleString('en-US')} 元（${st.stats.投資 >= st.stats.投資本金 ? '+' : ''}${Math.round((st.stats.投資 / st.stats.投資本金 - 1) * 100)}%）`),
       st.rule && st.turn < st.rule.until && st.rule.label && h('span', { class: 'pf-fam', 'data-rule': '1' }, `📵 家規：${st.rule.label}`),
       shock && h('span', { class: 'pf-shock ' + (shock.sign < 0 ? 'neg' : 'pos'), title: shock.desc, 'data-shock': shock.label }, `${shock.icon} ${shock.label}`)),
@@ -345,8 +374,8 @@ export function showReport(refs, rp, { onGuess, onNext, guessed, st, avatar }) {
   const cram = num(/^([\d,]+) 人在補習/m), phoneHeavy = num(/^([\d,]+) 人手機/m);
   const days = (rp.commuteLine.match(/(\d+) 天/) || [])[1], pct = (rp.commuteLine.match(/機率(?:大約|約) ?([\d.]+%)/) || [])[1];
   const facts = [
-    cram && `👥 1,000 人中 ${cram} 人在補習${st.habits.補習 > 0 ? '（你也是）' : ''}`,
-    phoneHeavy && `📱 ${phoneHeavy} 人手機「一有空就滑」以上`,
+    cram && `👥 同屆${rough(cram)}在補習${st.habits.補習 > 0 ? '（你也是）' : ''}`,
+    phoneHeavy && `📱 ${rough(phoneHeavy)}手機「一有空就滑」`,
     days && pct && ['腳踏車', '微電車', '無照騎機車'].includes(st.identity.commute) && `${st.identity.commute === '腳踏車' ? '🚲' : '🛵'} 你騎車上學 ${days} 天，一年發生事故的機率約 ${pct}`,
   ].filter(Boolean);
   const out = h('p', { class: 'rq-out', 'data-out': '1', 'aria-live': 'polite' });
@@ -366,7 +395,7 @@ export function showReport(refs, rp, { onGuess, onNext, guessed, st, avatar }) {
       h('div', null, h('div', { class: 'eyebrow' }, '學期報告'), h('h2', null, `${rp.title}結束了`))),
     h('div', { class: 'tiles' }, tiles.map(([ic, k, v]) => h('div', { class: 'tile' }, h('span', { class: 'ic', 'aria-hidden': 'true' }, ic), h('span', { class: 'tk' }, k), h('span', { class: 'tv' }, v)))),
     h('ul', { class: 'facts' }, facts.map((t) => h('li', null, t))),
-    h('div', { class: 'rq' }, h('p', { class: 'small muted' }, `猜猜看：同屆有多少 % 的人在補習或打工？`), input, out),
+    h('div', { class: 'rq' }, h('p', { class: 'small muted' }, rp.quiz.question), input, out),
     btn,
   );
   btn.focus({ preventScroll: true });

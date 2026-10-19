@@ -56,7 +56,7 @@ export const deserialize = (s) => {
 export function visibleScore(st, rngAtFn) {
   // 分數 = 理解 +（補習帶來的）短期假熟悉 + 雜訊
   const noise = (rngAtFn(st.seed, st.turn, 'score') - 0.5) * 10;
-  return Math.max(0, Math.min(100, Math.round(st.stats.理解 * 0.85 + st.stats.假熟悉 * 0.6 + noise)));
+  return Math.max(0, Math.min(100, Math.round(25 + st.stats.理解 * 0.75 + st.stats.假熟悉 * 0.6 + noise)));
 }
 
 export function focusPhrase(f) {

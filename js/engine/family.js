@@ -8,7 +8,8 @@ export const MAX_TUTOR = 3;
 
 const BIZ = ['早餐店', '夜市攤商', '新住民家庭開店', '計程車／貨運／外送', '農漁業'];
 const SALARY = ['公務員', '科技業工程師', '醫生', '教師', '大學教授', '工廠輪班'];
-const JOB_LOSS_W = { 工廠輪班: 3, '計程車／貨運／外送': 3, 夜市攤商: 2, 新住民家庭開店: 2, 早餐店: 2, 農漁業: 1.5, 科技業工程師: 1, 公務員: 0.2, 教師: 0.2, 醫生: 0.1, 大學教授: 0.1 };
+// 自己開店、務農的家庭不會「失業」，壞消息是生意變差（見 BIZ）
+const JOB_LOSS_W = { 工廠輪班: 3, '計程車／貨運／外送': 3, 夜市攤商: 0, 新住民家庭開店: 0, 早餐店: 0, 農漁業: 0, 科技業工程師: 1, 公務員: 0.2, 教師: 0.2, 醫生: 0.1, 大學教授: 0.1 };
 
 export const SHOCKS = {
   unemployed: { sign: -1, icon: '⚠️', label: '{p}失業中', desc: '{p}的工作沒了，家裡手頭變緊，補習先省著。', card: 'fam_unemployed', end: '{p}找到新工作了，家裡手頭慢慢寬鬆回來。' },
@@ -64,7 +65,7 @@ export function famStep(st, data, tl) {
   const neg = rngAt(st.seed, st.turn, 'famsign') < 0.7;
   let opts;
   if (neg) {
-    opts = [['unemployed', JOB_LOSS_W[job] ?? 0.5], ['sick', 1]];
+    opts = [['unemployed', JOB_LOSS_W[job] ?? 0.5], ['sick', 1]].filter(([, w]) => w > 0);
     if (BIZ.includes(job)) opts.push(['biz_bad', 2.5]);
   } else {
     opts = [];

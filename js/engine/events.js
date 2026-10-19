@@ -121,6 +121,7 @@ export function buildCtx(st, tl) {
     家規: id.parentRule || '普通', 手機上限中: !!(st.rule && st.turn < st.rule.until), AI依賴: s.AI依賴 ?? 0, 親子: s.親子 ?? 50,
     地區: id.tier, 職業: id.family.job, 風格: id.family.style, 性別: id.sex,
     年級: tl ? tl.year : 1, 學期: tl ? (tl.seg === '上學期' ? 1 : tl.seg === '下學期' ? 2 : 0) : 1,
+    交往回合: st.flags.交往中 && st.partner ? Math.max(0, st.turn - st.partner.since) : 0,
     回合: st.turn, 假期: tl ? !!tl.vacation : false, 寒假: tl ? tl.seg === '寒假' : false, 考試週: examNow,
     家裡狀況: (st.fam && st.fam.shock && st.fam.shock.id) || '',
     網友回合: st.netStart == null ? -1 : st.turn - st.netStart,
@@ -188,6 +189,25 @@ export function drawCard(st, data, ctx, r) {
   return pickWeighted(r, byPool[pool.name], (c) => (c.weight ?? 1) * mulMods(c.modifiers, ctx));
 }
 
+/* ───────────── 交往對象 ───────────── */
+// 在一起的那一刻決定對象的名字：優先用認識的同儕（不含 {同學} 那位，好讓吃醋卡有第三人），沒有就用身分資料的名字
+export function ensurePartner(st, turnNo, idn) {
+  if (st.partner) return st.partner;
+  let pool = (st.peers?.known || []).slice(1).map((k) => k.name).filter((n) => n && n !== st.identity.name);
+  if (!pool.length && idn) pool = [...(idn.givenNamesM || []), ...(idn.givenNamesF || [])];
+  const name = pool.length ? pool[Math.floor(rngAt(st.seed, turnNo, 'partner') * pool.length)] : '對方';
+  st.partner = { name, since: turnNo };
+  return st.partner;
+}
+export const dropPartner = (st) => { st.partner = null; };
+export const isDatingCard = (c) => c.pool === '感情' && !!(c.requires && c.requires.flags && c.requires.flags.includes('交往中'));
+
+/** 交往中專用的加抽：只從「需要交往中」的感情卡裡挑 */
+export function drawDatingCard(st, data, ctx, r) {
+  const pool = data.events.cards.filter((c) => isDatingCard(c) && eligible(c, st, ctx));
+  return pool.length ? pickWeighted(r, pool, (c) => (c.weight ?? 1) * mulMods(c.modifiers, ctx)) : null;
+}
+
 /* ───────────── 把卡片轉成顯示用資料 ───────────── */
 // IG 上認識的人用帳號名稱稱呼，不直接叫「網友」（玩家才不會一開始就起戒心）
 const NET_HANDLES = ['@mia.0927', '@yu_ting.lin', '@kai__chen', '@sunny_hsu', '@leo.wu_17', '@chloe.tw', '@a_ming.zz', '@rainy.day04', '@jason_lee.08', '@pinpin.0612'];
@@ -195,7 +215,7 @@ export function fill(text, st) {
   const friend = st.peers.known[0]?.name || '同學';
   if (!st.netName) st.netName = NET_HANDLES[Math.floor(rngAt(st.seed, 7, 'nethandle') * NET_HANDLES.length)];
   text = text.replace(/\{網友\}/g, st.netName);
-  return text.replace(/\{家長\}/g, st.identity.family.parent || '家長').replace(/\{同學\}/g, friend).replace(/\{姓名\}/g, st.identity.name);
+  return text.replace(/\{家長\}/g, st.identity.family.parent || '家長').replace(/\{同學\}/g, friend).replace(/\{對象\}/g, st.partner?.name || '對方').replace(/\{姓名\}/g, st.identity.name);
 }
 
 export function choiceState(ch, st, ctx) {
@@ -213,7 +233,7 @@ export function choiceState(ch, st, ctx) {
     else { disabled = true; reason = '錢包不夠'; }
   }
   // 想存錢／投資時，花錢的社交選項要多留一倍的餘裕才肯花（不是硬擋，錢多就能付）
-  if (!disabled && ch.cost && (st.habits.零用錢 || '花掉') !== '花掉' && st.stats.錢包 < ch.cost * 2) { disabled = true; reason = '想存錢'; }
+  if (!disabled && !owe && ch.cost && (st.habits.零用錢 || '花掉') !== '花掉' && st.stats.錢包 < ch.cost * 2) { disabled = true; reason = '想存錢'; }
   return { disabled, reason, owe };
 }
 
@@ -279,6 +299,8 @@ export function applyChoice(st, data, card, idx, ctx, r, turnNo) {
   for (const f of ch.setFlags || []) st.flags[f] = true;
   if (ch.ladder) { const nx = ch.ladder.find((f) => !st.flags[f]); if (nx) st.flags[nx] = true; } // 計次旗標：第一次設第一個、第二次設第二個……
   for (const f of ch.clearFlags || []) delete st.flags[f];
+  if ((ch.setFlags || []).includes('交往中')) ensurePartner(st, turnNo, data && data.identities);
+  if ((ch.clearFlags || []).includes('交往中')) dropPartner(st);
   if (ch.setHabits) Object.assign(st.habits, ch.setHabits);
   if (ch.addHabits) for (const [k, d] of Object.entries(ch.addHabits)) st.habits[k] = clamp(st.habits[k] + d, 0, { 補習: 3, 遊戲: 3, 運動: 2 }[k] ?? 4);
   if (ch.setCommute) st.identity.commute = ch.setCommute;

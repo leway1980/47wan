@@ -9,7 +9,7 @@ import { stateRng, pick } from '../js/engine/rng.js';
 import { compile, evalCond, VISIBLE_KEYS } from '../js/engine/events.js';
 import { lifeProbTable, turnProb, DEATH_LINE } from '../js/engine/life.js';
 import { buildCtx, passes, describeCard, applyChoice } from '../js/engine/events.js';
-import { applyHabits } from '../js/engine/turn.js';
+import { applyHabits, COUPLE_LINES } from '../js/engine/turn.js';
 import { buildEnding } from '../js/engine/report.js';
 import { N_PEERS, stepPeers } from '../js/engine/peers.js';
 import { tutorCap, tutorMaxLevel, famStep, shockOf, effectiveEcon } from '../js/engine/family.js';
@@ -753,4 +753,60 @@ test('資料檢查：手機／遊戲只靠決定就減少會有提醒；現有�
   const bad = loadRaw();
   bad.events.cards.find((c) => c.id === 'ig_trip_story').choices[0].addHabits = { 手機: -1 };
   assert.ok(lintData(bad).warns.some((w) => w.includes('只靠決定')));
+});
+
+test('交往：對象名字、交往回合、{對象} 代換，分手後清除', () => {
+  const st = newState(5, data);
+  assert.equal(describeCard(data.cardIndex.dt_jealous, st, buildCtx(st, data.timeline[0])).text.includes('對方'), true, '沒有對象時退回「對方」');
+  const confess = data.cardIndex.crush_confess;
+  st.turn = 6;
+  applyChoice(st, data, confess, 0, buildCtx(st, data.timeline[6]), stateRng(st), 6);
+  assert.ok(st.flags.交往中 && st.partner && st.partner.name && st.partner.since === 6);
+  assert.notEqual(st.partner.name, st.peers.known[0].name, '對象不是 {同學} 那位');
+  st.turn = 11;
+  assert.equal(buildCtx(st, data.timeline[11]).交往回合, 5);
+  const v = describeCard(data.cardIndex.dt_jealous, st, buildCtx(st, data.timeline[11]));
+  assert.ok(v.text.includes(st.partner.name) && !v.text.includes('{對象}'));
+  const q = data.cardIndex.couple_quarrel;
+  applyChoice(st, data, q, 2, buildCtx(st, data.timeline[11]), stateRng(st), 11);
+  assert.ok(!st.flags.交往中 && st.partner === null);
+  assert.equal(buildCtx(st, data.timeline[12]).交往回合, 0);
+});
+
+test('交往中：每回合都有相處的小事 log，感情卡很常出現（約一半的回合）', () => {
+  let dTurns = 0, dCards = 0;
+  for (let seed = 1; seed <= 24; seed++) {
+    const st = newState(seed, data);
+    st.flags.交往中 = true;
+    for (let t = 0; t < 40 && !st.ended && !st.dead; t++) {
+      const was = !!st.flags.交往中;
+      const res = startTurn(st, data);
+      if (res.dead) break;
+      if (was) {
+        dTurns++;
+        if (res.card && (res.card.id.startsWith('dt_') || ['couple_quarrel', 'pay_couple_support', 'pay_couple_breakup'].includes(res.card.id))) dCards++;
+      }
+      const name = st.partner ? st.partner.name : '對方'; // 選項可能分手，先記下名字
+      if (res.card) chooseCard(st, data, res.card.choices.find((c) => !c.disabled).i);
+      const fin = finishTurn(st, data);
+      if (st.reportPending) st.reportPending = null;
+      if (was) {
+        const texts = fin.lines.map((l) => l.text);
+        const lineOk = COUPLE_LINES.some((L) => texts.includes(L.t.replace(/\{對象\}/g, name)));
+        assert.ok(lineOk, `seed ${seed} 回合 ${t} 沒有相處的 log：${texts}`);
+      }
+    }
+  }
+  assert.ok(dTurns > 300);
+  assert.ok(dCards / dTurns >= 0.4 && dCards / dTurns <= 0.75, `交往卡比例 ${(dCards / dTurns).toFixed(2)}`);
+});
+
+test('交往卡資料：至少 18 張交往卡，都需要交往中、有冷卻、有前因後果、不鎖性別', () => {
+  const ds = data.events.cards.filter((c) => c.id.startsWith('dt_'));
+  const main = ds.filter((c) => c.pool === '感情');
+  assert.ok(main.length >= 18, `交往卡 ${main.length}`);
+  for (const c of main) { assert.ok(c.requires.flags.includes('交往中'), c.id); assert.ok(c.cooldown, c.id); }
+  assert.ok(ds.filter((c) => c.payoffOf).length >= 5);
+  for (const c of ds) for (const ch of c.choices) for (const g of [].concat(ch.grayIf || [])) assert.ok(!/性別/.test(g.if), `${c.id} 不能用性別鎖選項`);
+  for (const c of ds) if (c.requires?.expr) assert.ok(!/性別/.test(c.requires.expr), `${c.id} 不能用性別擋卡片`);
 });

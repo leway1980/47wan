@@ -86,7 +86,8 @@ details.habits { background: var(--card); border: 1px solid var(--line); border-
   background: rgba(14, 18, 26, .94); color: #f5f1e6; border: 2px solid #e9e2d0; border-radius: 12px; box-shadow: 0 -4px 20px rgba(0, 0, 0, .35), inset 0 0 0 2px rgba(14, 18, 26, .94), inset 0 0 0 3px rgba(233, 226, 208, .3);
   padding: 10px 14px; }
 .dlg-box:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
-.feed { list-style: none; margin: auto 0 0; padding: 0; display: grid; gap: 4px; }
+.feed { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.feed li.sep { padding: 6px 0 2px; color: #ffd36b; font-size: 12px; font-weight: 700; letter-spacing: .04em; border-bottom: 1px solid rgba(255, 255, 255, .12); animation: none; }
 .feed li { padding-left: 18px; position: relative; color: #b7bcc6; font-size: 15px; line-height: 1.5; animation: slidein .25s ease-out; }
 .feed li.new { color: #fff; font-weight: 600; }
 .feed li.new::before { content: "▶"; position: absolute; left: 0; top: 0; font-size: 12px; line-height: 1.9; color: #ffd36b; }
@@ -241,4 +242,17 @@ details[open] > summary.cp.detail::before { content: "▾ "; }
 @media (max-width: 767.98px) {
   .side { display: contents; }
   .charcard { order: 1; } .layout > .stats { order: 2; } details.habits { order: 3; }
+}
+
+/* 「目前的你」橫跨整排，桌機版把習慣排成多欄，避免左右高度不一留下大空白 */
+.layout > details.habits { grid-column: 1 / -1; }
+@media (min-width: 768px) {
+  .layout > details.habits .hp-main { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); column-gap: 24px; align-items: start; }
+  .layout > details.habits .hp-main > :not(.hp-row) { grid-column: 1 / -1; }
+}
+@media (min-width: 768px) {
+  /* 右邊數值區撐滿與左邊角色卡同高，不留空白 */
+  .layout { align-items: stretch; }
+  .layout > .stats { grid-auto-rows: 1fr; align-content: stretch; }
+  .layout > details.habits { align-self: start; }
 }

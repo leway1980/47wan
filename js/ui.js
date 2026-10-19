@@ -133,8 +133,9 @@ export function renderGame(root, { onSpeed, speed }) {
       h('div', { class: 'progress', role: 'progressbar', 'aria-label': '三年進度' }, refs.prog),
     ),
     h('main', { class: 'wrap layout' },
-      h('div', { class: 'side' }, refs.card, refs.habits),
+      h('div', { class: 'side' }, refs.card),
       refs.stats,
+      refs.habits,
     ),
     h('section', { class: 'dialog', 'aria-label': '生活紀錄' },
       h('div', { class: 'wrap' }, h('div', { class: 'dlg-tab' }, '生活紀錄'), h('div', { class: 'dlg-box', tabindex: '0' }, refs.feed))),
@@ -276,26 +277,46 @@ export function renderHabits(refs, st) {
   paintAvatar(refs);
 }
 
-/* 生活紀錄：RPG 對話框。新行從底部滑入，最新一行逐字顯示；4× 或減少動態時直接顯示。 */
+/* 生活紀錄：最新的在最上面，往下滑看更早的；依月份分段，標示「本月／一個月前……」。
+   最新一行逐字顯示；4× 或減少動態時直接顯示。 */
 const CHAR_MS = 20;
 export function appendLog(refs, ms, text, cls = '') {
   refs.logQ.push({ ms, text, cls });
   if (!refs.logBusy) pumpLog(refs);
+}
+const monthKey = (ms) => { const d = new Date(ms); return d.getFullYear() * 12 + d.getMonth(); };
+function relLabel(key, nowKey) {
+  const y = Math.floor(key / 12), m = key % 12 + 1, diff = nowKey - key;
+  const rel = diff <= 0 ? '本月' : diff === 1 ? '一個月前' : diff < 12 ? `${diff} 個月前` : `${Math.floor(diff / 12)} 年前`;
+  return `${y} 年 ${m} 月・${rel}`;
+}
+function refreshSeps(refs, nowKey) {
+  for (const sep of refs.feed.querySelectorAll('li.sep')) sep.textContent = relLabel(+sep.dataset.key, nowKey);
 }
 function pumpLog(refs) {
   const item = refs.logQ.shift();
   if (!item) { refs.logBusy = false; return; }
   refs.logBusy = true;
   const box = refs.feed.parentElement;
-  const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  const stick = box.scrollTop < 40; // 使用者在看舊紀錄時不要把畫面拉回頂端
   for (const old of refs.feed.querySelectorAll('li.new')) old.classList.remove('new');
+  if (item.ms != null) {
+    const key = monthKey(item.ms);
+    if (refs.logMonth !== key) {
+      refs.logMonth = key;
+      refs.feed.prepend(h('li', { class: 'sep', 'data-key': String(key) }));
+    }
+    refreshSeps(refs, key);
+  }
   const body = h('span', { class: 'tx' });
   const li = h('li', { class: `new ${item.cls}`.trim() }, item.ms != null && h('time', null, shortDate(item.ms)), body);
-  refs.feed.append(li);
-  while (refs.feed.children.length > 80) refs.feed.firstChild.remove();
-  if (stick) box.scrollTop = box.scrollHeight;
+  const top = refs.feed.firstElementChild;
+  // 新訊息放在本月分隔線的下面（分隔線永遠在該月最上方）
+  if (top && top.classList.contains('sep')) top.after(li); else refs.feed.prepend(li);
+  while (refs.feed.children.length > 120) refs.feed.lastElementChild.remove();
+  if (stick) box.scrollTop = 0;
   const instant = refs.speed === 4 || reduceMotion() || refs.logQ.length > 2;
-  if (instant) { body.textContent = item.text; if (stick) box.scrollTop = box.scrollHeight; pumpLog(refs); return; }
+  if (instant) { body.textContent = item.text; pumpLog(refs); return; }
   // 先用不可見字佔位，避免逐字顯示時換行位置跳動
   const chars = [...item.text];
   const shown = h('span'), rest = h('span', { class: 'ghost' }, item.text);
@@ -305,7 +326,6 @@ function pumpLog(refs) {
     n++;
     shown.textContent = chars.slice(0, n).join('');
     rest.textContent = chars.slice(n).join('');
-    if (stick) box.scrollTop = box.scrollHeight;
     if (n >= chars.length || refs.speed === 4) { shown.textContent = item.text; rest.textContent = ''; pumpLog(refs); }
     else setTimeout(step, CHAR_MS);
   };

@@ -6,7 +6,7 @@ import { pickWeighted, clamp } from './rng.js';
 
 const cache = new Map();
 
-function tokenize(src) {
+export function tokenize(src) {
   const toks = [];
   let i = 0;
   while (i < src.length) {
@@ -116,7 +116,7 @@ export function buildCtx(st, tl) {
   return {
     __flags: st.flags,
     ...s,
-    手機: h.手機, 睡前手機: h.睡前手機 ? 1 : 0, 補習: h.補習, 運動: h.運動, 遊戲: h.遊戲, 作業: h.作業, 課堂: h.課堂,
+    手機: h.手機, 零用錢: h.零用錢 || '花掉', 睡前手機: h.睡前手機 ? 1 : 0, 補習: h.補習, 運動: h.運動, 遊戲: h.遊戲, 作業: h.作業, 課堂: h.課堂,
     經濟: id.family.econ, 支援: id.family.support, 學校: id.schoolType, 通勤: id.commute,
     家規: id.parentRule || '普通', 手機上限中: !!(st.rule && st.turn < st.rule.until), AI依賴: s.AI依賴 ?? 0, 親子: s.親子 ?? 50,
     地區: id.tier, 職業: id.family.job, 風格: id.family.style,

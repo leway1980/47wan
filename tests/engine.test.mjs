@@ -498,3 +498,9 @@ test('家規：parentRule 與家長風格相關；接受規定後手機等級被
   startTurn(st, data);
   assert.equal(st.habits.手機, 4);
 });
+
+test('資料對齊：事件用到的數值、習慣、變數、延遲事件都存在', async () => {
+  const { lintData } = await import('../tools/lint-data.mjs');
+  const { errors } = lintData();
+  assert.deepEqual(errors, []);
+});

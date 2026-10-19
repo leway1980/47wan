@@ -44,6 +44,22 @@ jobs:
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: 驗證 Cloudflare token
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          # 使用者 token 與帳號 token 的驗證網址不同，兩個都試
+          ok=0
+          for u in "https://api.cloudflare.com/client/v4/user/tokens/verify" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/verify"; do
+            r=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$u")
+            st=$(printf '%s' "$r" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);console.log(j.success&&j.result?j.result.status:"invalid")}catch{console.log("invalid")}})')
+            if [ "$st" = "active" ]; then ok=1; break; fi
+          done
+          if [ "$ok" != 1 ]; then
+            echo "::error::Cloudflare 不認得這個 token（無效、已被 Roll 換掉、或複製到的不是 token 本身）。請到 Cloudflare → My Profile → API Tokens 重新建立一個，在最後一頁按「Copy」按鈕複製，再到 GitHub 更新 CLOUDFLARE_API_TOKEN。"
+            exit 1
+          fi
+          echo "token 有效"
+
       - uses: actions/checkout@v4
         if: steps.gate.outputs.ready == 'true'
         with:

@@ -1,0 +1,235 @@
+// 事件卡：條件求值器（不用 eval）、抽卡、套用選擇。純函式，無 DOM。
+import { pickWeighted, clamp } from './rng.js';
+
+/* ───────────── 小型條件求值器 ─────────────
+   語法：數字、'字串'、變數名(中文可)、#旗標、== != < <= > >=、and or not（也可用 && || !）、括號、true/false */
+
+const cache = new Map();
+
+function tokenize(src) {
+  const toks = [];
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    if (/\s/.test(c)) { i++; continue; }
+    if (c === "'" || c === '"') {
+      let j = i + 1;
+      while (j < src.length && src[j] !== c) j++;
+      if (j >= src.length) throw new Error('字串沒有結尾: ' + src);
+      toks.push({ t: 'str', v: src.slice(i + 1, j) });
+      i = j + 1; continue;
+    }
+    if (/[0-9]/.test(c) || (c === '-' && /[0-9]/.test(src[i + 1] || '') && !isValueTok(toks[toks.length - 1]))) {
+      let j = i + 1;
+      while (j < src.length && /[0-9.]/.test(src[j])) j++;
+      toks.push({ t: 'num', v: parseFloat(src.slice(i, j)) });
+      i = j; continue;
+    }
+    if (c === '#') {
+      let j = i + 1;
+      while (j < src.length && /[^\s()=!<>&|]/.test(src[j])) j++;
+      toks.push({ t: 'flag', v: src.slice(i + 1, j) });
+      i = j; continue;
+    }
+    const two = src.slice(i, i + 2);
+    if (['==', '!=', '<=', '>=', '&&', '||'].includes(two)) { toks.push({ t: 'op', v: two }); i += 2; continue; }
+    if ('<>!()'.includes(c)) { toks.push({ t: 'op', v: c }); i++; continue; }
+    if (/[A-Za-z_㐀-鿿]/.test(c)) {
+      let j = i + 1;
+      while (j < src.length && /[A-Za-z0-9_㐀-鿿]/.test(src[j])) j++;
+      const w = src.slice(i, j);
+      if (w === 'and') toks.push({ t: 'op', v: '&&' });
+      else if (w === 'or') toks.push({ t: 'op', v: '||' });
+      else if (w === 'not') toks.push({ t: 'op', v: '!' });
+      else if (w === 'true') toks.push({ t: 'lit', v: true });
+      else if (w === 'false') toks.push({ t: 'lit', v: false });
+      else toks.push({ t: 'var', v: w });
+      i = j; continue;
+    }
+    throw new Error(`無法解析條件 "${src}" 在位置 ${i}`);
+  }
+  return toks;
+}
+const isValueTok = (t) => t && (t.t === 'num' || t.t === 'str' || t.t === 'var' || t.t === 'flag' || t.t === 'lit' || (t.t === 'op' && t.v === ')'));
+
+function parse(toks) {
+  let p = 0;
+  const peek = () => toks[p];
+  const eat = (v) => { if (peek() && peek().t === 'op' && peek().v === v) { p++; return true; } return false; };
+  function orE() {
+    let l = andE();
+    while (eat('||')) { const a = l, b = andE(); l = (c) => a(c) || b(c); }
+    return l;
+  }
+  function andE() {
+    let l = notE();
+    while (eat('&&')) { const a = l, b = notE(); l = (c) => a(c) && b(c); }
+    return l;
+  }
+  function notE() {
+    if (eat('!')) { const a = notE(); return (c) => !a(c); }
+    return cmpE();
+  }
+  function cmpE() {
+    const l = prim();
+    const t = peek();
+    if (t && t.t === 'op' && ['==', '!=', '<', '<=', '>', '>='].includes(t.v)) {
+      p++;
+      const r = prim();
+      switch (t.v) {
+        case '==': return (c) => l(c) === r(c);
+        case '!=': return (c) => l(c) !== r(c);
+        case '<': return (c) => num(l(c)) < num(r(c));
+        case '<=': return (c) => num(l(c)) <= num(r(c));
+        case '>': return (c) => num(l(c)) > num(r(c));
+        default: return (c) => num(l(c)) >= num(r(c));
+      }
+    }
+    return l;
+  }
+  function prim() {
+    const t = toks[p++];
+    if (!t) throw new Error('條件不完整');
+    if (t.t === 'op' && t.v === '(') { const e = orE(); if (!eat(')')) throw new Error('缺少右括號'); return e; }
+    if (t.t === 'num' || t.t === 'str' || t.t === 'lit') return () => t.v;
+    if (t.t === 'flag') return (c) => !!(c.__flags && c.__flags[t.v]);
+    if (t.t === 'var') return (c) => c[t.v];
+    throw new Error('意外的符號 ' + t.v);
+  }
+  const f = orE();
+  if (p < toks.length) throw new Error('條件後面有多餘的內容');
+  return f;
+}
+const num = (x) => (typeof x === 'number' ? x : x === undefined || x === null ? NaN : Number(x));
+
+export function compile(expr) {
+  let f = cache.get(expr);
+  if (!f) { f = parse(tokenize(expr)); cache.set(expr, f); }
+  return f;
+}
+export const evalCond = (expr, ctx) => !!compile(expr)(ctx);
+
+/* ───────────── 條件環境 ───────────── */
+export function buildCtx(st, tl) {
+  const s = st.stats, h = st.habits, id = st.identity;
+  const examNow = !!(tl && tl.examWeek);
+  return {
+    __flags: st.flags,
+    ...s,
+    手機: h.手機, 睡前手機: h.睡前手機 ? 1 : 0, 補習: h.補習, 運動: h.運動, 遊戲: h.遊戲, 作業: h.作業, 課堂: h.課堂,
+    經濟: id.family.econ, 支援: id.family.support, 學校: id.schoolType, 通勤: id.commute,
+    地區: id.tier, 職業: id.family.job, 風格: id.family.style,
+    年級: tl ? tl.year : 1, 學期: tl ? (tl.seg === '上學期' ? 1 : tl.seg === '下學期' ? 2 : 0) : 1,
+    回合: st.turn, 假期: tl ? !!tl.vacation : false, 考試週: examNow,
+  };
+}
+
+/* ───────────── 效果 ───────────── */
+const RANGE = {
+  專注: [0, 100], 理解: [0, 100], 體力: [0, 100], 聯繫: [0, 100], 知心: [0, 5], 心情: [0, 100], 幸福: [0, 100],
+  錢包: [0, 1e9], 睡眠債: [0, 10], 牽掛: [0, 10], 假熟悉: [0, 30], 班級氣氛: [0, 1], 興趣: [0.8, 1.2], 露餡: [0, 10],
+};
+export const VISIBLE_KEYS = ['心情', '聯繫', '知心', '體力', '錢包', '分數'];
+
+export function addStat(st, k, d) {
+  if (k === '分數') { addStat(st, '理解', d * 0.6); addStat(st, '假熟悉', d * 0.4); return; }
+  const r = RANGE[k];
+  if (!r) throw new Error('未知的數值: ' + k);
+  st.stats[k] = clamp(st.stats[k] + d, r[0], r[1]);
+}
+export function applyEffects(st, eff) {
+  if (!eff) return;
+  for (const [k, d] of Object.entries(eff)) addStat(st, k, d);
+}
+
+/* ───────────── 抽卡 ───────────── */
+export function cardById(data, id) {
+  const c = data.cardIndex[id];
+  if (!c) throw new Error('找不到事件卡: ' + id);
+  return c;
+}
+
+function eligible(card, st, ctx) {
+  if (card.pool.startsWith('_')) return false;
+  if (card.once && st.used[card.id]) return false;
+  if ((st.cooldowns[card.id] || -1) > st.turn) return false;
+  return passes(card, st, ctx);
+}
+export function passes(card, st, ctx) {
+  const rq = card.requires, ex = card.excludes;
+  if (rq) {
+    if (rq.flags && !rq.flags.every((f) => st.flags[f])) return false;
+    if (rq.expr && !evalCond(rq.expr, ctx)) return false;
+  }
+  if (ex) {
+    if (ex.flags && ex.flags.some((f) => st.flags[f])) return false;
+    if (ex.expr && evalCond(ex.expr, ctx)) return false;
+  }
+  return true;
+}
+function mulMods(mods, ctx) {
+  let x = 1;
+  if (mods) for (const m of mods) if (evalCond(m.if, ctx)) x *= m.x;
+  return x;
+}
+
+/** 兩段式抽卡：先抽池子，再抽卡。找不到就回傳 null。 */
+export function drawCard(st, data, ctx, r) {
+  const byPool = {};
+  for (const c of data.events.cards) if (eligible(c, st, ctx)) (byPool[c.pool] ||= []).push(c);
+  const pools = Object.keys(byPool).map((name) => ({
+    name, w: (data.events.pools[name]?.base ?? 3) * mulMods(data.events.pools[name]?.mods, ctx),
+  }));
+  const pool = pickWeighted(r, pools);
+  if (!pool) return null;
+  return pickWeighted(r, byPool[pool.name], (c) => (c.weight ?? 1) * mulMods(c.modifiers, ctx));
+}
+
+/* ───────────── 把卡片轉成顯示用資料 ───────────── */
+export function fill(text, st) {
+  const friend = st.peers.known[0]?.name || '同學';
+  return text.replace(/\{同學\}/g, friend).replace(/\{姓名\}/g, st.identity.name);
+}
+
+export function choiceState(ch, st, ctx) {
+  let disabled = false, reason = '';
+  if (ch.grayIf) {
+    for (const g of [].concat(ch.grayIf)) if (evalCond(g.if, ctx)) { disabled = true; reason = g.reason; break; }
+  }
+  if (!disabled && ch.cost && st.stats.錢包 < ch.cost) { disabled = true; reason = '錢包不夠'; }
+  return { disabled, reason };
+}
+
+export function describeCard(card, st, ctx) {
+  return {
+    id: card.id, title: card.title, text: fill(card.text, st),
+    choices: card.choices.map((ch, i) => {
+      const { disabled, reason } = choiceState(ch, st, ctx);
+      const chips = Object.entries(ch.effects || {}).filter(([, v]) => v !== 0).map(([k, v]) => ({ k, dir: v > 0 ? 1 : -1 }));
+      return { i, label: ch.label, note: ch.note || '', chips, disabled, reason };
+    }),
+  };
+}
+
+/** 套用玩家的選擇。回傳 {line}。 */
+export function applyChoice(st, data, card, idx, ctx, r, turnNo) {
+  const ch = card.choices[idx];
+  if (!ch) throw new Error(`選項不存在: ${card.id}#${idx}`);
+  const gs = choiceState(ch, st, ctx);
+  if (gs.disabled) throw new Error(`選項不可選: ${card.id}#${idx} (${gs.reason})`);
+  if (ch.cost) st.stats.錢包 -= ch.cost;
+  applyEffects(st, ch.effects);
+  applyEffects(st, ch.hidden);
+  for (const f of ch.setFlags || []) st.flags[f] = true;
+  for (const f of ch.clearFlags || []) delete st.flags[f];
+  if (ch.setHabits) Object.assign(st.habits, ch.setHabits);
+  if (ch.addHabits) for (const [k, d] of Object.entries(ch.addHabits)) st.habits[k] = clamp(st.habits[k] + d, 0, k === '補習' ? 3 : 4);
+  if (ch.setCommute) st.identity.commute = ch.setCommute;
+  for (const d of ch.delayed || []) {
+    if (r() < d.chance) st.delayed.push({ event: d.event, due: turnNo + d.after[0] + Math.floor(r() * (d.after[1] - d.after[0] + 1)) });
+  }
+  if (card.once) st.used[card.id] = true;
+  if (card.cooldown) st.cooldowns[card.id] = turnNo + card.cooldown + 1;
+  st.choices.push({ turn: turnNo, id: card.id, title: card.title, label: ch.label, commute: ch.setCommute || null });
+  return { line: ch.result ? fill(ch.result, st) : '' };
+}

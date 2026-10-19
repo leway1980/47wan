@@ -1,0 +1,8 @@
+{
+  "name": "wan47",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "《47萬分之1》高中人生模擬 v0.1（純靜態網頁，無相依套件）",
+  "scripts": { "test": "node --test tests/", "simulate": "node tools/simulate.mjs", "serve": "python3 -m http.server 8000" }
+}

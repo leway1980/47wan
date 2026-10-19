@@ -1,0 +1,105 @@
+{
+ "_readme": "取自設計稿 life_events.json（v0.1 子集）。",
+ "events": [
+  {
+   "id": "traffic_death_teen",
+   "cat": "交通",
+   "name": "交通事故死亡（13–17 歲）",
+   "annual_count": 66,
+   "population": 1050000,
+   "year": 2020,
+   "exposure": "通勤方式",
+   "risk_groups": {
+    "無照騎機車": {
+     "share_of_events": 0.77,
+     "exposure_share_assumption": 0.1,
+     "annual_prob_if_in_group": 0.000484
+    },
+    "其他": {
+     "share_of_events": 0.23,
+     "exposure_share_assumption": 0.9,
+     "annual_prob_if_in_group": 1.6e-05
+    }
+   },
+   "display": "2020 年，全台 13–17 歲有 66 人死於交通事故，其中 51 人是無照騎機車。",
+   "source": "https://www.cyhs.tp.edu.tw/ezfiles/0/1000/img/17/188742602.pdf",
+   "confidence": "med",
+   "verify": true,
+   "note": "無照騎機車占高中生的比例（exposure_share_assumption=0.10）是設計假設，待查"
+  },
+  {
+   "id": "micro_escooter_crash",
+   "cat": "交通",
+   "name": "騎微型電動二輪車（微電車）發生事故",
+   "annual_count": 5300,
+   "population": 1050000,
+   "year": 2026,
+   "exposure": "騎微電車上學（每週天數）",
+   "risk_groups": {
+    "騎微電車": {
+     "share_of_events": 1.0,
+     "exposure_share_assumption": 0.08,
+     "annual_prob_if_in_group": 0.063095
+    }
+   },
+   "display": "2026 年上半年，全台微電車事故超過 6,200 件，其中 13–17 歲約 2,650 件，超過四成。",
+   "source": "https://news.pts.org.tw/article/825738",
+   "confidence": "med",
+   "verify": true,
+   "note": "annual_count 由上半年 2,650 件乘 2 估算；騎微電車的學生比例 0.08 是設計假設。規定：滿 14 歲、要掛牌和保險、時速上限 25 公里、不能載人",
+   "severity": {
+    "輕傷": 0.85,
+    "住院": 0.13,
+    "重傷休學": 0.019,
+    "死亡": 0.001
+   }
+  },
+  {
+   "id": "slow_vehicle_casualty",
+   "cat": "交通",
+   "name": "騎腳踏車、電動輔助車、微電車等慢車受傷",
+   "annual_count": 17000,
+   "population": 1050000,
+   "year": 2024,
+   "exposure": "騎慢車上學（每週天數）",
+   "risk_groups": {
+    "騎慢車": {
+     "share_of_events": 1.0,
+     "exposure_share_assumption": 0.35,
+     "annual_prob_if_in_group": 0.046259
+    }
+   },
+   "display": "近四年，全台 13–17 歲每年平均超過 1.7 萬人在慢車事故中受傷；從 2024 年起，慢車事故已經是這個年齡最大宗的交通事故。",
+   "source": "https://www.thenewslens.com/feature/teen-bike-commuting-safety/267998",
+   "confidence": "low",
+   "verify": true,
+   "note": "1.7 萬人是否只算慢車還待核；騎慢車上學的比例 0.35 是設計假設",
+   "severity": {
+    "輕傷": 0.9,
+    "住院": 0.09,
+    "重傷休學": 0.01
+   }
+  },
+  {
+   "id": "unlicensed_penalty",
+   "cat": "交通",
+   "name": "無照騎車被攔查開罰",
+   "annual_count": 7563,
+   "population": 1050000,
+   "year": 2023,
+   "exposure": "無照騎機車",
+   "risk_groups": {
+    "無照騎機車": {
+     "share_of_events": 1.0,
+     "exposure_share_assumption": 0.1,
+     "annual_prob_if_in_group": 0.072029
+    }
+   },
+   "display": "無照騎機車罰款 18,000–36,000 元；2026-01-31 起，無照騎車造成重傷或死亡，將終身不得考照。",
+   "source": "https://udn.com/news/story/7315/9614550",
+   "confidence": "low",
+   "verify": true,
+   "note": "2024 年資料 50,726 件疑似有誤，採 2023 年"
+  }
+ ]
+}

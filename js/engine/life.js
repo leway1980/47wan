@@ -8,7 +8,7 @@ export const COMMUTE_DAYS_PER_TURN = 10;
 export function groupOf(ev, commute) {
   const g = ev.risk_groups;
   switch (ev.id) {
-    case 'traffic_death_teen': return commute === '無照騎機車' ? '無照騎機車' : '其他';
+    case 'traffic_death_teen': return commute === '無照騎機車' || commute === '機車' ? '無照騎機車' : '其他'; // 18 歲剛考照的新手，風險跟無照相近（設計假設）
     case 'micro_escooter_crash': return commute === '微電車' ? '騎微電車' : null;
     case 'slow_vehicle_casualty': return commute === '腳踏車' || commute === '微電車' ? '騎慢車' : null;
     case 'unlicensed_penalty': return commute === '無照騎機車' ? '無照騎機車' : null;
@@ -40,7 +40,7 @@ export function rollSeverity(ev, u) {
 }
 export const isMajor = (sev) => sev === '住院' || sev === '重傷休學' || sev === '死亡';
 
-const VEHICLE = { 腳踏車: '腳踏車', 微電車: '微型電動二輪車', 無照騎機車: '機車', 其他: '' };
+const VEHICLE = { 腳踏車: '腳踏車', 微電車: '微型電動二輪車', 無照騎機車: '機車', 機車: '機車', 其他: '' };
 
 /** 把一次發生轉成要顯示的卡片＋要套用的效果。 */
 export function describeOutcome(ev, sev, commute) {

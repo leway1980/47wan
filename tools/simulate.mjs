@@ -12,7 +12,8 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const rd = (f) => JSON.parse(readFileSync(join(root, 'data', f), 'utf8'));
 
 export function loadData() {
-  return prepareData({ identities: rd('identities.json'), events: rd('events.json'), calendar: rd('calendar.json'), life_events: rd('life_events.json') });
+  const events = rd('events.json'); events.cards.push(...rd('events_campus.json').cards);
+  return prepareData({ identities: rd('identities.json'), events, calendar: rd('calendar.json'), life_events: rd('life_events.json') });
 }
 
 export function randomPolicy(st) {

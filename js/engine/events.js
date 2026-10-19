@@ -119,7 +119,7 @@ export function buildCtx(st, tl) {
     手機: h.手機, 睡前手機: h.睡前手機 ? 1 : 0, 補習: h.補習, 運動: h.運動, 遊戲: h.遊戲, 作業: h.作業, 課堂: h.課堂,
     經濟: id.family.econ, 支援: id.family.support, 學校: id.schoolType, 通勤: id.commute,
     家規: id.parentRule || '普通', 手機上限中: !!(st.rule && st.turn < st.rule.until), AI依賴: s.AI依賴 ?? 0, 親子: s.親子 ?? 50,
-    地區: id.tier, 職業: id.family.job, 風格: id.family.style,
+    地區: id.tier, 性別: id.sex, 職業: id.family.job, 風格: id.family.style,
     年級: tl ? tl.year : 1, 學期: tl ? (tl.seg === '上學期' ? 1 : tl.seg === '下學期' ? 2 : 0) : 1,
     回合: st.turn, 假期: tl ? !!tl.vacation : false, 考試週: examNow,
     家裡狀況: (st.fam && st.fam.shock && st.fam.shock.id) || '',
@@ -262,6 +262,7 @@ export function applyChoice(st, data, card, idx, ctx, r, turnNo) {
   if (ch.addHabits) for (const [k, d] of Object.entries(ch.addHabits)) st.habits[k] = clamp(st.habits[k] + d, 0, { 補習: 3, 遊戲: 3, 運動: 2 }[k] ?? 4);
   if (ch.setCommute) st.identity.commute = ch.setCommute;
   for (const d of ch.delayed || []) {
+    if (d.if && !evalCond(d.if, ctx)) continue; // 可選的條件：不符合就不排這個後續
     const hit = r() < d.chance * (d.event === 'fam_scholarship' ? 0.8 + 0.4 * ((st.stats.親子 ?? 50) / 100) : 1);
     const ev = hit ? d.event : d.else;
     const due = turnNo + d.after[0] + Math.floor(r() * (d.after[1] - d.after[0] + 1));

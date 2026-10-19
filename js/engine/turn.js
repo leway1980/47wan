@@ -68,13 +68,20 @@ const COVER = { 自己就是資源: 0.4, 花錢買資源: 0.7, 自己找資源: 
 const IG_LOOK_LINES = ['你的自拍被很多人按愛心。', '有人在你的貼文留言「今天好好看」，你笑了一下。', '隔壁班有人私訊說想認識你。'];
 const IG_LINES = ['你的限動被 23 個人看過，有 2 個人回覆。', '有人在限動 tag 你，你想了一下要怎麼回。', '同學私訊你：「在嗎？」你回完已經過了半小時。', '你滑了別人的出遊限動十分鐘。', '群組裡有人問你怎麼都沒回限動。', '有人按了你半年前的貼文愛心，你有點在意。', '你看到同學一起去吃飯的限動，你不在裡面。', '新追蹤你的人說是隔壁班的，你回追了。'];
 const GAME_LINES = ['每日任務還沒解完，你先上線點一下。', '限時活動只剩三天，你又打開了遊戲。', '公會戰今晚八點，你一直看時間。', '登入送十抽，你捨不得不領。', '體力條滿了，你找理由再上去一下。', '朋友說副本差一個人，你的手已經在滑。'];
+export const PHONE_CREEP = 0.06;
+const CREEP_LINE = '不知不覺，你滑手機的時間又變長了。';
 export function applyHabits(st, data, tl, r) {
   // 家規期間手機等級被壓住，但不改玩家自己的設定；期滿後自動恢復
-  const H = st.habits, own = H.手機;
+  const H = st.habits;
+  const capped = !!(st.rule && st.turn < st.rule.until);
+  // 手機悄悄變多：有 IG 或在玩遊戲的人，每回合約 6% 會不知不覺滑得更久（有保管／螢幕時間限制時不會）
+  const creep = !capped && (st.flags.IG || H.遊戲 >= 1) && H.手機 < 4 && rngAt(st.seed, st.turn, 'phonecreep') < PHONE_CREEP;
+  if (creep) H.手機 += 1;
+  const own = H.手機;
   // 手機帶進房間：沒有事件特別決定過，就跟著手機用量走（用很多的人通常會帶進房間）
   if (!st.flags.睡前定了) H.睡前手機 = H.手機 >= 3;
-  if (st.rule && st.turn < st.rule.until) H.手機 = Math.min(own, st.rule.cap);
-  try { return applyHabitsInner(st, data, tl, r); } finally { H.手機 = own; }
+  if (capped) H.手機 = Math.min(own, st.rule.cap);
+  try { const lines = applyHabitsInner(st, data, tl, r); return creep ? [CREEP_LINE, ...lines] : lines; } finally { H.手機 = own; }
 }
 // 打工收入（基本時薪 NT$196）：學期中一週一天(8h)×2週≈16h≈3,100；週六日都去≈6,300；
 // 假期一回合約一個月，一般兼職約 14,000，排滿班（打工加班）約 25,000。
@@ -275,8 +282,17 @@ export function startTurn(st, data) {
   if (fs.cardId && !cur.card) cur.card = cardById(data, fs.cardId);
   else if (fs.cardId) st.delayed.push({ event: fs.cardId, due: st.turn + 1 });
   if (!cur.card) {
-    const k = st.delayed.findIndex((d) => d.due <= st.turn);
-    if (k >= 0) { cur.card = cardById(data, st.delayed[k].event); st.delayed.splice(k, 1); }
+    // 到期的後續依到期先後出現；被固定劇情佔掉的回合不會丟掉，而是等下一個空的回合
+    for (;;) {
+      let k = -1;
+      st.delayed.forEach((d, i) => { if (d.due <= st.turn && (k < 0 || d.due < st.delayed[k].due)) k = i; });
+      if (k < 0) break;
+      const d = st.delayed.splice(k, 1)[0];
+      const c = data.cardIndex[d.event];
+      if (!c || (c.once && st.used[c.id])) continue; // 舊存檔的事件已不存在，或這張只會出現一次
+      if (d.need && !evalCond(d.need, buildCtx(st, tl))) continue; // 到期時的條件不符（例如已經分手）
+      cur.card = c; break;
+    }
   }
   // 4. 人生事件
   const outcomes = checkLife(st, data, tl);

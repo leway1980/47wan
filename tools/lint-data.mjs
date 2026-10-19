@@ -52,6 +52,9 @@ export function lintData(raw = loadRaw()) {
   for (const c of cards) {
     const W = `卡片 ${c.id}`;
     if (!pools.has(c.pool) && !c.pool.startsWith('_')) errors.push(`${W}：池子「${c.pool}」不存在`);
+    if (c.payoffOf && !c.payoffSetup) warns.push(`${W}：有 payoffOf 但沒有 payoffSetup（結局的「如果重來」找不到起點）`);
+    if (c.payoffSetup && !ids.has(c.payoffSetup)) errors.push(`${W}：payoffSetup「${c.payoffSetup}」不存在`);
+    if (c.payoffOf && c.payoffTone && !['good', 'bad'].includes(c.payoffTone)) errors.push(`${W}：payoffTone 只能是 good 或 bad`);
     if (c.requires?.expr) checkExpr(c.requires.expr, W);
     for (const f of c.requires?.flags || []) note(flagRead, f, W);
     for (const f of c.excludes?.flags || []) note(flagRead, f, W);
@@ -72,6 +75,13 @@ export function lintData(raw = loadRaw()) {
         if (!ids.has(d.event)) errors.push(`${WC}：延遲事件「${d.event}」不存在`);
         if (d.else && !ids.has(d.else)) errors.push(`${WC}：延遲事件 else「${d.else}」不存在`);
         if (d.if) checkExpr(d.if, WC);
+        if (d.need) checkExpr(d.need, WC);
+        if (!d.after && !d.atTurn) errors.push(`${WC}：延遲事件「${d.event}」要有 after 或 atTurn`);
+      }
+      for (const f of ch.ladder || []) note(flagSet, f, WC);
+      // 結構性規則：不能只靠「決定」就把手機／遊戲降下來，要有保管、密碼、功能機、刪帳號之類的實際動作
+      for (const k of ['手機', '遊戲']) {
+        if ((ch.addHabits?.[k] ?? 0) < 0 && !ch.phoneCap && !(ch.setFlags || []).some((f) => /保管|刪帳號/.test(f))) warns.push(`${WC}：${k}減少只靠決定（沒有 phoneCap，也沒有含「保管」或「刪帳號」的旗標）`);
       }
       for (const f of ch.setFlags || []) note(flagSet, f, WC);
       for (const f of ch.clearFlags || []) note(flagRead, f, WC);
@@ -93,6 +103,7 @@ export function lintData(raw = loadRaw()) {
     let up = false, down = false;
     for (const c of cards) for (const ch of c.choices || []) {
       const d = ch.addHabits?.[h]; if (d > 0) up = true; if (d < 0) down = true;
+      if (h === '手機' && ch.phoneCap) down = true; // 保管、螢幕時間密碼、功能機都算「結構性的降低」
       const s = ch.setHabits?.[h]; if (typeof s === 'number') { up = true; down = true; }
     }
     if (!up) warns.push(`習慣「${h}」沒有任何事件能讓它上升`);

@@ -39,7 +39,7 @@ export function newState(seed, data) {
   return {
     v: SAVE_VERSION, seed, turn: 0, rngS: (seed ^ 0xa5a5a5a5) >>> 0, peerS: (seed ^ 0x3c6ef372) >>> 0,
     identity, stats, habits: startHabits(seed, identity), flags: {}, cooldowns: {}, used: {},
-    delayed: [], deferred: [], majorCount: {}, choices: [], luck: [], hist: [], logs: [],
+    delayed: [], deferred: [], majorCount: {}, choices: [], payoffs: [], luck: [], hist: [], logs: [],
     peers, peerCounts: newPeerCounts(), peerSnap: newPeerCounts(),
     recover: 0, dead: false, deathTurn: null, ended: false,
     gsat: null, final: null, outcome: null, examScores: [], quiz: [], reportPending: null, cur: null,

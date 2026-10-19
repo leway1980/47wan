@@ -243,6 +243,7 @@ export function applyChoice(st, data, card, idx, ctx, r, turnNo) {
   if (ch.cost) st.stats.錢包 -= ch.cost;
   if (ch.cost && (st.habits.零用錢 || '花掉') !== '花掉') addStat(st, '心情', -1); // 花下去會心疼
   if (ch.phoneCap) st.rule = { cap: ch.phoneCap.cap, until: turnNo + ch.phoneCap.turns, label: ch.phoneCap.label || null };
+  if (ch.endRule) st.rule = null; // 保管的手機被拿回來、密碼被破解：限制提早結束
   if (ch.investMul) { st.stats.投資 *= ch.investMul; }
   if (ch.scam) { // 詐騙損失：記錄下來，結局報告會提到
     const [lo, hi] = ch.scamLoss || [0, 0];
@@ -269,6 +270,7 @@ export function applyChoice(st, data, card, idx, ctx, r, turnNo) {
   }
   st.stats.錢包 = Math.max(0, st.stats.錢包);
   for (const f of ch.setFlags || []) st.flags[f] = true;
+  if (ch.ladder) { const nx = ch.ladder.find((f) => !st.flags[f]); if (nx) st.flags[nx] = true; } // 計次旗標：第一次設第一個、第二次設第二個……
   for (const f of ch.clearFlags || []) delete st.flags[f];
   if (ch.setHabits) Object.assign(st.habits, ch.setHabits);
   if (ch.addHabits) for (const [k, d] of Object.entries(ch.addHabits)) st.habits[k] = clamp(st.habits[k] + d, 0, { 補習: 3, 遊戲: 3, 運動: 2 }[k] ?? 4);
@@ -277,8 +279,13 @@ export function applyChoice(st, data, card, idx, ctx, r, turnNo) {
     if (d.if && !evalCond(d.if, ctx)) continue; // 可選的條件：不符合就不排這個後續
     const hit = r() < d.chance * (d.event === 'fam_scholarship' ? 0.8 + 0.4 * ((st.stats.親子 ?? 50) / 100) : 1);
     const ev = hit ? d.event : d.else;
-    const due = turnNo + d.after[0] + Math.floor(r() * (d.after[1] - d.after[0] + 1));
-    if (ev) st.delayed.push({ event: ev, due });
+    let due;
+    if (d.atTurn) { // 綁定在特定回合區間（例如高三、畢旅前）；已經錯過就不排
+      if (turnNo >= d.atTurn[1]) continue;
+      const lo = Math.max(d.atTurn[0], turnNo + 1);
+      due = lo + Math.floor(r() * (d.atTurn[1] - lo + 1));
+    } else due = turnNo + d.after[0] + Math.floor(r() * (d.after[1] - d.after[0] + 1));
+    if (ev) st.delayed.push(d.need ? { event: ev, due, need: d.need } : { event: ev, due }); // need：到期時再檢查的條件，不符合就不出現
   }
   if (card.pool === '遊戲') st.gameDecline = ch.declineGame ? (st.gameDecline || 0) + 1 : 0;
   let extra = '';
@@ -286,5 +293,11 @@ export function applyChoice(st, data, card, idx, ctx, r, turnNo) {
   if (card.once) st.used[card.id] = true;
   if (card.cooldown) st.cooldowns[card.id] = turnNo + card.cooldown + 1;
   st.choices.push({ turn: turnNo, id: card.id, title: card.title, label: ch.label, commute: ch.setCommute || null, spend: !!ch.spend });
+  if (card.payoffOf) { // 「早先的選擇」帶來的後果：記下來，結局報告會列出
+    const e = ch.effects || {};
+    const val = (e.心情 || 0) + (e.聯繫 || 0) + (e.分數 || 0) + (e.體力 || 0) * 0.5 + (e.錢包 || 0) / 100;
+    const setup = card.payoffSetup ? [...st.choices].reverse().find((c) => c.id === card.payoffSetup && c.turn < turnNo) : null;
+    (st.payoffs ||= []).push({ turn: turnNo, setup: fill(card.payoffOf, st), title: card.title, label: ch.label, tone: card.payoffTone || null, val, setupTurn: setup ? setup.turn : null, setupLabel: setup ? setup.label : null });
+  }
   return { line: [ch.result ? fill(ch.result, st) : '', extra].filter(Boolean).join(' ') };
 }

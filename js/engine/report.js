@@ -272,6 +272,16 @@ export function buildEnding(st, data) {
     whatIf = `${turnLabel(tl)}（${formatDate(tl.start)}），你的專注從 ${p.專注.toFixed(0)} 掉到 ${h.專注.toFixed(0)}，是三年來掉最多的一次。那時你的狀態是：${bits.join('、')}${h.c ? `，剛好遇到「${h.c}」` : ''}。也許跟這有關。${tip}`;
   } else whatIf = '你的專注三年來沒有明顯的斷崖，也許是因為你每一步都走得很平穩。';
 
+  // 你的選擇，後來……：早先的選擇在後面帶來的結果（最多 6 項）
+  const pays = st.payoffs || [];
+  const payoffs = pays.slice(0, 6).map((p) => `${p.setup} → ${p.title}`);
+  // 後果最糟的一次，優先拿來當「如果重來」
+  const worst = pays.filter((p) => p.tone === 'bad' && p.setupTurn != null).sort((x, y) => x.val - y.val)[0];
+  if (worst) {
+    const stl = tlOf(worst.setupTurn);
+    whatIf = `${turnLabel(stl)}（${formatDate(stl.start)}），${worst.setup}${worst.setupLabel ? `——你選了「${worst.setupLabel}」` : ''}。後來「${worst.title}」找上門${worst.label ? `，你選了「${worst.label}」` : ''}。如果重來，也許可以在那個當下試試另一條路。`;
+  }
+
   if (st.dead) {
     const tl = tlOf(st.deathTurn ?? st.turn);
     const ev = data.life.byId.traffic_death_teen;
@@ -284,7 +294,7 @@ export function buildEnding(st, data) {
         chosen: changed ? [`把通勤方式從「${id.commuteOrig}」改成「${id.commute}」`] : [],
         drawn: [`出生在${id.county}${id.district}`, ...(!changed ? [`每天通勤的方式：${id.commuteOrig}`] : []), `${formatDate(tl.start)} 那一天`],
       },
-      truth: `在台灣：${ev.display}`, curves, whatIf: '', good: '', regret: '', turning: null, outcome: null,
+      truth: `在台灣：${ev.display}`, curves, whatIf: '', payoffs: [], good: '', regret: '', turning: null, outcome: null,
     };
   }
   const o = st.outcome || computeOutcome(st, data);
@@ -298,10 +308,10 @@ export function buildEnding(st, data) {
   return {
     archetype: k, tag: txt.tag, line: txt.line, header, dead: false, outcome: o,
     sections: [
-      { age: '18 歲', text: txt.a18 }, { age: '22 歲', text: txt.a22 },
+      { age: '18 歲', text: txt.a18 + (st.flags.記_店長推薦 ? '便當店的店長說，畢業後隨時歡迎你回去上班。' : '') }, { age: '22 歲', text: txt.a22 },
       { age: '25 歲', text: txt.a25 + moneyLine }, { age: '30 歲', text: txt.a30 },
     ],
-    good: txt.good, regret: txt.regret, curves, chosenDrawn: { chosen, drawn }, whatIf,
+    good: txt.good, regret: txt.regret, curves, chosenDrawn: { chosen, drawn }, whatIf, payoffs,
     reveal: `你的心情平均 ${mean(hs.map((h) => h.心情)).toFixed(0)}，真實幸福平均 ${mean(hs.map((h) => h.幸福)).toFixed(0)}。短期開心和長期過得好，不一定是同一條線。`,
     footnote: '以上是模型推估的可能性，不是預言；睡眠、手機與專注的關係來自研究共識，但數字是設計假設。' + ((st.scams || []).length ? '被騙時先保留證據、撥 165 反詐騙專線。' : ''),
   };
